@@ -1,7 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  Animated,
-  Easing,
   Pressable,
   StyleSheet,
   Text,
@@ -35,58 +33,7 @@ export default function HomeScreen() {
   const [todayUsage, setTodayUsage] = useState(false);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
 
-  const cardOpacity = useRef(new Animated.Value(0)).current;
-  const loadingOpacity = useRef(new Animated.Value(0)).current;
-  const recordingPulse = useRef(new Animated.Value(1)).current;
-  const emptyOpacity = useRef(new Animated.Value(0)).current;
 
-
-  useEffect(() => {
-    if (result) {
-      Animated.timing(cardOpacity, {
-        toValue: 1,
-        duration: 360,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: true,
-      }).start();
-    } else {
-      cardOpacity.setValue(0);
-    }
-  }, [result, cardOpacity]);
-
-  useEffect(() => {
-    Animated.timing(loadingOpacity, {
-      toValue: loading ? 1 : 0,
-      duration: 260,
-      useNativeDriver: true,
-    }).start();
-  }, [loading, loadingOpacity]);
-
-  useEffect(() => {
-    if (recordingStatus === "recording") {
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(recordingPulse, {
-            toValue: 1.06,
-            duration: 650,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(recordingPulse, {
-            toValue: 1,
-            duration: 650,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-        ])
-      );
-
-      loop.start();
-      return () => loop.stop();
-    }
-
-    recordingPulse.setValue(1);
-  }, [recordingStatus, recordingPulse]);
 
   const params = useLocalSearchParams<{ selectedTimestamp?: string }>();
 
@@ -168,12 +115,8 @@ useEffect(() => {
   }, [input]);
 
   useEffect(() => {
-    Animated.timing(emptyOpacity, {
-      toValue: (!result && !loading) ? 1 : 0,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
-  }, [result, loading, emptyOpacity]);
+    // Empty state visibility is controlled by conditionals in JSX.
+  }, [result, loading]);
 
 
   const saveHistory = async (items: HistoryItem[]) => {
@@ -358,23 +301,24 @@ const addHistoryEntry = async (entry: HistoryItem) => {
           }
           disabled={loading}
         >
-          <Animated.View
+          <View
             style={[
               styles.micInner,
               recordingStatus === "recording" && styles.micInnerActive,
-              { transform: [{ scale: recordingPulse }] },
             ]}
           >
             <Text style={styles.micText}>
               {recordingStatus === "recording" ? "⏹ Recording..." : "🎙️ Hold to speak"}
             </Text>
-          </Animated.View>
+          </View>
         </Pressable>
       </View>
 
-      <Animated.View style={[styles.loadingOverlay, { opacity: loadingOpacity }]}> 
-        <ActivityIndicator size="large" color="#6366F1" />
-      </Animated.View>
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#6366F1" />
+        </View>
+      )}
 
       {progressMessage && (
         <View style={styles.progressMessage}>
@@ -383,30 +327,16 @@ const addHistoryEntry = async (entry: HistoryItem) => {
       )}
 
       {!result && !loading && (
-        <Animated.View style={[styles.emptyState, { opacity: emptyOpacity }]}>
+        <View style={styles.emptyState}>
           <Text style={styles.emptyEmoji}>🧠</Text>
           <Text style={styles.emptyTitle}>Clear your mind</Text>
           <Text style={styles.emptyText}>Write anything on your mind — we’ll organize it into clear tasks.</Text>
-        </Animated.View>
+        </View>
       )}
 
       {result && (
-        <Animated.View
-          style={[
-            styles.card,
-            {
-              opacity: cardOpacity,
-              transform: [
-                {
-                  scale: cardOpacity.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.98, 1],
-                  }),
-                },
-              ],
-            },
-          ]}
-        >
+        <View style={styles.card}>
+
           <Text style={styles.sectionTitle}>Tasks</Text>
           {result.tasks.map((task: string, i: number) => {
             const completed = completedTasks.includes(i);
@@ -453,7 +383,7 @@ const addHistoryEntry = async (entry: HistoryItem) => {
               </View>
             ))}
           </View>
-        </Animated.View>
+        </View>
       )}
     </ScrollView>
   );
