@@ -16,116 +16,404 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const ORGANIZE_TIME_VALUES = new Set([
+  "dawn",
+  "morning",
+  "work",
+  "communication",
+  "appointment",
+  "lunch",
+  "afternoon",
+  "evening",
+  "night",
+  "sleep",
+]);
+
+const buildFallbackOrganizeResponse = (text) => ({
+  tasks: [{ text, time: "afternoon" }],
+  plan: {
+    Work: [],
+    Personal: [text],
+  },
+  priorities: {
+    High: [text],
+    Medium: [],
+    Low: [],
+  },
+});
+
+const extractMessageContentText = (content) => {
+  if (typeof content === "string") {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return "";
+  }
+
+  return content
+    .map((block) => {
+      if (typeof block === "string") {
+        return block;
+      }
+
+      if (!block || typeof block !== "object") {
+        return "";
+      }
+
+      if (typeof block.text === "string") {
+        return block.text;
+      }
+
+      if (block.type === "text" && typeof block.text === "string") {
+        return block.text;
+      }
+
+      if (
+        block.type === "output_text" &&
+        block.text &&
+        typeof block.text === "object" &&
+        typeof block.text.value === "string"
+      ) {
+        return block.text.value;
+      }
+
+      return "";
+    })
+    .join("")
+    .trim();
+};
+
+const stripMarkdownCodeFences = (value) =>
+  value.replace(/```json/gi, "").replace(/```/g, "").trim();
+
+const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeStringArray = (value) =>
+  Array.isArray(value)
+    ? value.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
+    : null;
+
+const normalizeTasks = (value) => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const tasks = value
+    .map((task) => {
+      if (!isRecord(task)) {
+        return null;
+      }
+
+      const text = typeof task.text === "string" ? task.text.trim() : "";
+      const time = typeof task.time === "string" ? task.time.trim() : "";
+
+      if (!text || !ORGANIZE_TIME_VALUES.has(time)) {
+        return null;
+      }
+
+      return { text, time };
+    })
+    .filter(Boolean);
+
+  return tasks.length > 0 ? tasks : null;
+};
+
+const normalizeOrganizePayload = (value) => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const tasks = normalizeTasks(value.tasks);
+  if (!tasks) {
+    return null;
+  }
+
+  const planSource = isRecord(value.plan) ? value.plan : {};
+  const prioritiesSource = isRecord(value.priorities) ? value.priorities : {};
+
+  const plan = {
+    Work: normalizeStringArray(planSource.Work) ?? [],
+    Personal: normalizeStringArray(planSource.Personal) ?? [],
+  };
+
+  const priorities = {
+    High: normalizeStringArray(prioritiesSource.High) ?? [],
+    Medium: normalizeStringArray(prioritiesSource.Medium) ?? [],
+    Low: normalizeStringArray(prioritiesSource.Low) ?? [],
+  };
+
+  return {
+    tasks,
+    plan,
+    priorities,
+  };
+};
+
+const parseOrganizePayloadFromMessage = (message) => {
+  const rawParsed = message?.parsed;
+  if (rawParsed !== undefined && rawParsed !== null) {
+    const normalizedParsed = normalizeOrganizePayload(rawParsed);
+    if (normalizedParsed) {
+      return {
+        source: "message.parsed",
+        payload: normalizedParsed,
+      };
+    }
+
+    console.warn("⚠️ message.parsed exists but failed validation");
+  } else {
+    console.warn("⚠️ message.parsed missing or null");
+  }
+
+  const rawContent = extractMessageContentText(message?.content);
+  if (!rawContent) {
+    console.warn("⚠️ No usable message.content found for fallback parsing");
+    return null;
+  }
+
+  const cleanedContent = stripMarkdownCodeFences(rawContent);
+  try {
+    const parsedFromContent = JSON.parse(cleanedContent);
+    const normalizedFromContent = normalizeOrganizePayload(parsedFromContent);
+
+    if (normalizedFromContent) {
+      return {
+        source: Array.isArray(message?.content)
+          ? "message.content[array]"
+          : "message.content[string]",
+        payload: normalizedFromContent,
+      };
+    }
+
+    console.warn("⚠️ Parsed JSON from message.content but validation failed");
+    return null;
+  } catch (error) {
+    console.error("❌ Failed to JSON.parse message.content fallback", {
+      error: error instanceof Error ? error.message : String(error),
+      rawContent: cleanedContent,
+    });
+    return null;
+  }
+};
+
 // ================== ORGANIZE ROUTE ==================
 app.post("/organize", async (req, res) => {
   const { text } = req.body;
 
+  if (typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "Text is required" });
+  }
+
   try {
-    const response = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+    const response = await client.chat.completions.parse({
+      model: "gpt-4o",
+      temperature: 0,
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "task_plan",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              tasks: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    text: { type: "string" },
+                    time: {
+                      type: "string",
+                      enum: [
+                        "dawn",
+                        "morning",
+                        "work",
+                        "communication",
+                        "appointment",
+                        "lunch",
+                        "afternoon",
+                        "evening",
+                        "night",
+                        "sleep",
+                      ],
+                    },
+                  },
+                  required: ["text", "time"],
+                  additionalProperties: false,
+                },
+              },
+              plan: {
+                type: "object",
+                properties: {
+                  Work: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                  Personal: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                },
+                required: ["Work", "Personal"],
+                additionalProperties: false,
+              },
+              priorities: {
+                type: "object",
+                properties: {
+                  High: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                  Medium: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                  Low: {
+                    type: "array",
+                    items: { type: "string" },
+                  },
+                },
+                required: ["High", "Medium", "Low"],
+                additionalProperties: false,
+              },
+            },
+            required: ["tasks", "plan", "priorities"],
+            additionalProperties: false,
+          },
+        },
+      },
+
       messages: [
         {
           role: "system",
           content: `
 You are an advanced productivity assistant.
 
-Turn the user's input into a structured action plan.
+Convert user input into a structured daily plan.
 
 Rules:
 - Extract ALL actionable tasks
-- Do not drop routine items like breakfast, lunch, dinner, shower, brushing teeth, prayer, walking dog, gym, or sleep. Treat them as valid tasks.
-- If the user mentions breakfast, lunch, or dinner, you MUST include it exactly as its own task.
-- Add a short deadline if possible, only when useful
-- NEVER remove any user-mentioned routine item.
-- If the user mentions breakfast, lunch, dinner, shower, brush teeth, prayer, gym, dog walk, reading, or sleep, it MUST appear as its own item in "tasks".
-- Do not merge lunch into another task.
-- Break complex tasks into smaller steps
-- Keep tasks clear and practical
-- Every task must appear in plan AND priorities
-- Preserve the same task wording across "tasks", "plan", and "priorities"
+- Keep tasks short and clear
+- Do NOT merge unrelated tasks
+- Every task must appear in tasks, plan, and priorities
+- Each task must include a "time" field
 
-CRITICAL ORDERING RULE:
-The "tasks" array itself must be sorted in a realistic chronological daily timeline.
-Do NOT keep the user's original order.
-Do NOT rely on the priorities object to express order.
+Time values ONLY:
+dawn, morning, work, communication, appointment, lunch, afternoon, evening, night, sleep
 
-Sort the "tasks" array using this exact daily timeline:
-1. dawn / prayer tasks
-2. hygiene tasks like brush teeth or shower
-3. breakfast / morning food
-4. work tasks like work, email, reports
-5. communication tasks like calls or messages
-6. appointments like dentist or meetings
-7. lunch
-8. errands like shopping or buying
-9. outdoor tasks like walking the dog
-10. exercise tasks like gym or running
-11. evening wind-down tasks like reading or relaxing
-12. bedtime or sleep tasks last
+Sort tasks in this exact order:
+dawn → morning → work → communication → appointment → lunch → afternoon → evening → night → sleep
 
-Strict examples:
-Input: go to bed, have lunch, read a story, go to work, finish report, go shopping, brush teeth, have breakfast
-Output tasks: ["brush teeth", "have breakfast", "go to work", "finish report", "have lunch", "go shopping", "read a story", "go to bed"]
-
-Input: read story, go gym, walk dog, call wife, go shop, go work, finish report, go dentist, brush teeth, go bed
-Output tasks: ["brush teeth", "go work", "finish report", "call wife", "go dentist", "go shop", "walk dog", "go gym", "read story", "go bed"]
-
-Return ONLY valid JSON. No explanation.
-
-FORMAT:
-{
-  "tasks": ["task"],
-  "plan": {
-    "Work": [],
-    "Personal": []
-  },
-  "priorities": {
-    "High": [],
-    "Medium": [],
-    "Low": []
-  }
-}
-          `,
+Return structured JSON only.
+`
         },
         {
           role: "user",
-          content: text,
-        },
-      ],
+          content: text
+        }
+      ]
     });
 
-    let output = response.choices[0].message.content;
+    const choice = response?.choices?.[0];
+    const message = choice?.message;
+    const rawContentText = extractMessageContentText(message?.content);
 
-    console.log("AI RAW OUTPUT:", output);
+    console.log("ORGANIZE OPENAI RESPONSE SUMMARY:", {
+      id: response?.id ?? null,
+      model: response?.model ?? null,
+      choiceCount: Array.isArray(response?.choices) ? response.choices.length : 0,
+      finishReason: choice?.finish_reason ?? null,
+      hasMessage: Boolean(message),
+      hasParsed: message?.parsed !== undefined && message?.parsed !== null,
+      contentType: Array.isArray(message?.content) ? "array" : typeof message?.content,
+      hasRefusal: Boolean(message?.refusal),
+      rawContentPreview: rawContentText ? rawContentText.slice(0, 500) : null,
+    });
 
-    output = output.replace(/```json/g, "").replace(/```/g, "").trim();
+    if (!message) {
+      console.error("❌ Missing message on first choice");
+      return res.json(buildFallbackOrganizeResponse(text.trim()));
+    }
 
-    let parsed;
-
-    try {
-      parsed = JSON.parse(output);
-      console.log("AI PARSED OUTPUT:", JSON.stringify(parsed, null, 2));
-    } catch (err) {
-      console.error("JSON PARSE ERROR:", err);
-
-      return res.json({
-        tasks: [text],
-        plan: {
-          Work: [],
-          Personal: [text],
-        },
-        priorities: {
-          High: [text],
-          Medium: [],
-          Low: [],
-        },
+    if (message.refusal) {
+      console.warn("⚠️ Model refusal on /organize", {
+        refusal: message.refusal,
       });
     }
 
-    res.json(parsed);
+    const parsedResult = parseOrganizePayloadFromMessage(message);
+
+if (!parsedResult?.payload || !Array.isArray(parsedResult.payload.tasks)) {
+  console.error("❌ No valid organize payload after all parse attempts");
+  return res.json(buildFallbackOrganizeResponse(text.trim()));
+}
+
+const parsed = parsedResult.payload;
+
+// SAFETY DEFAULTS
+parsed.plan = parsed.plan || { Work: [], Personal: [] };
+parsed.priorities = parsed.priorities || { High: [], Medium: [], Low: [] };
+
+// PRECOMPUTE
+const taskTexts = parsed.tasks.map(t => t.text);
+const taskSet = new Set(taskTexts);
+
+// HARDEN ARRAYS
+parsed.plan.Work = Array.isArray(parsed.plan.Work) ? parsed.plan.Work : [];
+parsed.plan.Personal = Array.isArray(parsed.plan.Personal) ? parsed.plan.Personal : [];
+
+parsed.priorities.High = Array.isArray(parsed.priorities.High) ? parsed.priorities.High : [];
+parsed.priorities.Medium = Array.isArray(parsed.priorities.Medium) ? parsed.priorities.Medium : [];
+parsed.priorities.Low = Array.isArray(parsed.priorities.Low) ? parsed.priorities.Low : [];
+
+// SANITIZE
+for (const key of ["Work", "Personal"]) {
+  parsed.plan[key] = parsed.plan[key].filter(t => taskSet.has(t));
+}
+
+for (const key of ["High", "Medium", "Low"]) {
+  parsed.priorities[key] = parsed.priorities[key].filter(t => taskSet.has(t));
+}
+
+// ENSURE COMPLETENESS
+const workSet = new Set(parsed.plan.Work);
+const personalSet = new Set(parsed.plan.Personal);
+const highSet = new Set(parsed.priorities.High);
+const mediumSet = new Set(parsed.priorities.Medium);
+const lowSet = new Set(parsed.priorities.Low);
+
+for (const task of taskTexts) {
+  if (!workSet.has(task) && !personalSet.has(task)) {
+    parsed.plan.Personal.push(task);
+    personalSet.add(task);
+  }
+
+  if (!highSet.has(task) && !mediumSet.has(task) && !lowSet.has(task)) {
+    parsed.priorities.Medium.push(task);
+    mediumSet.add(task);
+  }
+}
+
+// DEDUPE
+const dedupe = (arr) => Array.from(new Set(arr));
+
+parsed.plan.Work = dedupe(parsed.plan.Work);
+parsed.plan.Personal = dedupe(parsed.plan.Personal);
+
+parsed.priorities.High = dedupe(parsed.priorities.High);
+parsed.priorities.Medium = dedupe(parsed.priorities.Medium);
+parsed.priorities.Low = dedupe(parsed.priorities.Low);
+
+// FINAL LOG
+console.log("AI STRUCTURED OUTPUT SOURCE:", parsedResult.source);
+console.log("AI STRUCTURED OUTPUT:", JSON.stringify(parsed, null, 2));
+
+return res.json(parsed);
   } catch (error) {
     console.error("ERROR:", error);
-    res.status(500).json({ error: "AI failed" });
+
+    return res.json(buildFallbackOrganizeResponse(text.trim()));
   }
 });
 
@@ -137,18 +425,15 @@ app.post("/transcribe", upload.single("audio"), async (req, res) => {
 
     fs.renameSync(oldPath, newPath);
 
-    console.log("FILE PATH:", newPath);
-
     const transcription = await client.audio.transcriptions.create({
       file: fs.createReadStream(newPath),
-      model: "gpt-4o-mini-transcribe",
+      model: "gpt-4o-mini-transcribe"
     });
 
     fs.unlinkSync(newPath);
 
-    console.log("TRANSCRIPTION:", transcription.text);
-
     res.json({ text: transcription.text });
+
   } catch (error) {
     console.error("TRANSCRIPTION ERROR:", error);
     res.status(500).json({ error: "Transcription failed" });
