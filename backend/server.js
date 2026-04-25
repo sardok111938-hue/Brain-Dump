@@ -35,11 +35,6 @@ const buildFallbackOrganizeResponse = (text) => ({
     Work: [],
     Personal: [text],
   },
-  priorities: {
-    High: [text],
-    Medium: [],
-    Low: [],
-  },
 });
 
 const extractMessageContentText = (content) => {
@@ -89,11 +84,6 @@ const stripMarkdownCodeFences = (value) =>
 
 const isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
-const normalizeStringArray = (value) =>
-  Array.isArray(value)
-    ? value.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim())
-    : null;
-
 const normalizeTasks = (value) => {
   if (!Array.isArray(value)) {
     return null;
@@ -119,6 +109,23 @@ const normalizeTasks = (value) => {
   return tasks.length > 0 ? tasks : null;
 };
 
+const buildPlanFromTasks = (tasks) =>
+  tasks.reduce(
+    (plan, task) => {
+      if (task.time === "work") {
+        plan.Work.push(task.text);
+      } else {
+        plan.Personal.push(task.text);
+      }
+
+      return plan;
+    },
+    {
+      Work: [],
+      Personal: [],
+    }
+  );
+
 const normalizeOrganizePayload = (value) => {
   if (!isRecord(value)) {
     return null;
@@ -129,24 +136,9 @@ const normalizeOrganizePayload = (value) => {
     return null;
   }
 
-  const planSource = isRecord(value.plan) ? value.plan : {};
-  const prioritiesSource = isRecord(value.priorities) ? value.priorities : {};
-
-  const plan = {
-    Work: normalizeStringArray(planSource.Work) ?? [],
-    Personal: normalizeStringArray(planSource.Personal) ?? [],
-  };
-
-  const priorities = {
-    High: normalizeStringArray(prioritiesSource.High) ?? [],
-    Medium: normalizeStringArray(prioritiesSource.Medium) ?? [],
-    Low: normalizeStringArray(prioritiesSource.Low) ?? [],
-  };
-
   return {
     tasks,
-    plan,
-    priorities,
+    plan: buildPlanFromTasks(tasks),
   };
 };
 
@@ -243,42 +235,8 @@ app.post("/organize", async (req, res) => {
                   additionalProperties: false,
                 },
               },
-              plan: {
-                type: "object",
-                properties: {
-                  Work: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                  Personal: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                },
-                required: ["Work", "Personal"],
-                additionalProperties: false,
-              },
-              priorities: {
-                type: "object",
-                properties: {
-                  High: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                  Medium: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                  Low: {
-                    type: "array",
-                    items: { type: "string" },
-                  },
-                },
-                required: ["High", "Medium", "Low"],
-                additionalProperties: false,
-              },
             },
-            required: ["tasks", "plan", "priorities"],
+            required: ["tasks"],
             additionalProperties: false,
           },
         },
@@ -296,8 +254,10 @@ Rules:
 - Extract ALL actionable tasks
 - Keep tasks short and clear
 - Do NOT merge unrelated tasks
-- Every task must appear in tasks, plan, and priorities
 - Each task must include a "time" field
+- Return ONLY the tasks array
+- Do not return priorities
+- Do not return plan
 
 Time values ONLY:
 dawn, morning, work, communication, appointment, lunch, afternoon, evening, night, sleep
@@ -350,60 +310,6 @@ if (!parsedResult?.payload || !Array.isArray(parsedResult.payload.tasks)) {
 }
 
 const parsed = parsedResult.payload;
-
-// SAFETY DEFAULTS
-parsed.plan = parsed.plan || { Work: [], Personal: [] };
-parsed.priorities = parsed.priorities || { High: [], Medium: [], Low: [] };
-
-// PRECOMPUTE
-const taskTexts = parsed.tasks.map(t => t.text);
-const taskSet = new Set(taskTexts);
-
-// HARDEN ARRAYS
-parsed.plan.Work = Array.isArray(parsed.plan.Work) ? parsed.plan.Work : [];
-parsed.plan.Personal = Array.isArray(parsed.plan.Personal) ? parsed.plan.Personal : [];
-
-parsed.priorities.High = Array.isArray(parsed.priorities.High) ? parsed.priorities.High : [];
-parsed.priorities.Medium = Array.isArray(parsed.priorities.Medium) ? parsed.priorities.Medium : [];
-parsed.priorities.Low = Array.isArray(parsed.priorities.Low) ? parsed.priorities.Low : [];
-
-// SANITIZE
-for (const key of ["Work", "Personal"]) {
-  parsed.plan[key] = parsed.plan[key].filter(t => taskSet.has(t));
-}
-
-for (const key of ["High", "Medium", "Low"]) {
-  parsed.priorities[key] = parsed.priorities[key].filter(t => taskSet.has(t));
-}
-
-// ENSURE COMPLETENESS
-const workSet = new Set(parsed.plan.Work);
-const personalSet = new Set(parsed.plan.Personal);
-const highSet = new Set(parsed.priorities.High);
-const mediumSet = new Set(parsed.priorities.Medium);
-const lowSet = new Set(parsed.priorities.Low);
-
-for (const task of taskTexts) {
-  if (!workSet.has(task) && !personalSet.has(task)) {
-    parsed.plan.Personal.push(task);
-    personalSet.add(task);
-  }
-
-  if (!highSet.has(task) && !mediumSet.has(task) && !lowSet.has(task)) {
-    parsed.priorities.Medium.push(task);
-    mediumSet.add(task);
-  }
-}
-
-// DEDUPE
-const dedupe = (arr) => Array.from(new Set(arr));
-
-parsed.plan.Work = dedupe(parsed.plan.Work);
-parsed.plan.Personal = dedupe(parsed.plan.Personal);
-
-parsed.priorities.High = dedupe(parsed.priorities.High);
-parsed.priorities.Medium = dedupe(parsed.priorities.Medium);
-parsed.priorities.Low = dedupe(parsed.priorities.Low);
 
 // FINAL LOG
 console.log("AI STRUCTURED OUTPUT SOURCE:", parsedResult.source);
