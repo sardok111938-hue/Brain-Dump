@@ -293,7 +293,7 @@ Return structured JSON only.
 
     if (!message) {
       console.error("❌ Missing message on first choice");
-      return res.json(buildFallbackOrganizeResponse(text.trim()));
+      return res.status(502).json({ error: "Could not build a valid plan." });
     }
 
     if (message.refusal) {
@@ -304,22 +304,22 @@ Return structured JSON only.
 
     const parsedResult = parseOrganizePayloadFromMessage(message);
 
-if (!parsedResult?.payload || !Array.isArray(parsedResult.payload.tasks)) {
-  console.error("❌ No valid organize payload after all parse attempts");
-  return res.json(buildFallbackOrganizeResponse(text.trim()));
-}
+    if (!parsedResult?.payload || !Array.isArray(parsedResult.payload.tasks)) {
+      console.error("❌ No valid organize payload after all parse attempts");
+      return res.status(502).json({ error: "Could not build a valid plan." });
+    }
 
-const parsed = parsedResult.payload;
+    const parsed = parsedResult.payload;
 
-// FINAL LOG
-console.log("AI STRUCTURED OUTPUT SOURCE:", parsedResult.source);
-console.log("AI STRUCTURED OUTPUT:", JSON.stringify(parsed, null, 2));
+    // FINAL LOG
+    console.log("AI STRUCTURED OUTPUT SOURCE:", parsedResult.source);
+    console.log("AI STRUCTURED OUTPUT:", JSON.stringify(parsed, null, 2));
 
-return res.json(parsed);
+    return res.json(parsed);
   } catch (error) {
     console.error("ERROR:", error);
 
-    return res.json(buildFallbackOrganizeResponse(text.trim()));
+    return res.status(500).json({ error: "Organize failed" });
   }
 });
 
