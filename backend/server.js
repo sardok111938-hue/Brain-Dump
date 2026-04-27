@@ -88,13 +88,20 @@ const normalizeTasks = (value) => {
       }
 
       const text = typeof task.text === "string" ? task.text.trim() : "";
-      const time = typeof task.time === "string" ? task.time.trim() : "";
+      const time =
+        typeof task.time === "string" ? task.time.trim().toLowerCase() : "";
+        
+      const reason = typeof task.reason === "string" ? task.reason.trim() : "";
 
       if (!text || !ORGANIZE_TIME_VALUES.has(time)) {
         return null;
       }
 
-      return { text, time };
+      return {
+        text,
+        time,
+        ...(reason ? { reason } : {}),
+      };
     })
     .filter(Boolean);
 
@@ -222,8 +229,11 @@ app.post("/organize", async (req, res) => {
                         "sleep",
                       ],
                     },
+                    reason: {
+                      type: ["string", "null"],
+                    },
                   },
-                  required: ["text", "time"],
+                  required: ["text", "time", "reason"],
                   additionalProperties: false,
                 },
               },
@@ -233,7 +243,6 @@ app.post("/organize", async (req, res) => {
           },
         },
       },
-
       messages: [
         {
           role: "system",
@@ -380,13 +389,19 @@ OUTPUT RULES
 - Keep tasks concise, but NEVER remove urgency or meaning.
 - Do not merge unrelated tasks
 - Split large tasks if needed
+- Each task must include a "text" field
 - Each task must include a "time" field
+- Each task must include a "reason" field
+- The "reason" field may be either a short string or null
 - Return tasks in Focus Mode order
 - Do not sort purely by time
 - Do not sort purely by importance
 - Do not return priorities
 - Do not return plan
-- Do not explain reasoning
+- The reason must be one short sentence explaining why this task is useful to do next
+- Use only the user's words and context
+- Do not invent facts
+- If the only clear reason is urgency, use: "It was marked urgent."
 - Return JSON only
 
 Time values only:
@@ -395,18 +410,18 @@ dawn, morning, work, communication, appointment, lunch, afternoon, evening, nigh
 Output format:
 {
   "tasks": [
-    { "text": "...", "time": "..." }
+    { "text": "...", "time": "...", "reason": "..." }
   ]
 }
 
 Return structured JSON only.
-`
+`,
         },
         {
           role: "user",
-          content: text
-        }
-      ]
+          content: text,
+        },
+      ],
     });
 
     const choice = response?.choices?.[0];
@@ -445,13 +460,17 @@ Return structured JSON only.
 
     const parsed = parsedResult.payload;
 
-    // FINAL LOG
     console.log("AI STRUCTURED OUTPUT SOURCE:", parsedResult.source);
     console.log("AI STRUCTURED OUTPUT:", JSON.stringify(parsed, null, 2));
 
     return res.json(parsed);
   } catch (error) {
-    console.error("ERROR:", error);
+    console.error("ORGANIZE ERROR:", {
+      message: error instanceof Error ? error.message : String(error),
+      type: error?.type ?? null,
+      param: error?.param ?? null,
+      status: error?.status ?? null,
+    });
 
     return res.status(500).json({ error: "Organize failed" });
   }
