@@ -29,14 +29,6 @@ const ORGANIZE_TIME_VALUES = new Set([
   "sleep",
 ]);
 
-const buildFallbackOrganizeResponse = (text) => ({
-  tasks: [{ text, time: "afternoon" }],
-  plan: {
-    Work: [],
-    Personal: [text],
-  },
-});
-
 const extractMessageContentText = (content) => {
   if (typeof content === "string") {
     return content.trim();
@@ -248,22 +240,59 @@ app.post("/organize", async (req, res) => {
           content: `
 You are an advanced productivity assistant.
 
-Convert user input into a structured daily plan.
+Your job:
 
-Rules:
-- Extract ALL actionable tasks
-- Keep tasks short and clear
+1. Extract all actionable tasks from the input
+2. Convert each into a clear action (no vague nouns)
+3. Assign a valid time label
+
+---
+
+NORMALIZATION RULES:
+
+- Convert vague inputs into actions:
+  "email" → "check email"
+  "calendar" → "check calendar"
+  "report" → "work on report"
+  "boss" → "call boss"
+
+- Every task must be a clear action
+- No single-word tasks
+
+---
+
+RULES:
+
+- Extract ALL tasks
+- Keep tasks short
 - Do NOT merge unrelated tasks
-- Each task must include a "time" field
-- Return ONLY the tasks array
-- Do not return priorities
-- Do not return plan
+- Split large tasks if obvious
+- Each task MUST include a "time" field
+
+---
+
+IMPORTANT:
+
+- DO NOT prioritize tasks
+- DO NOT reorder tasks
+- DO NOT optimize for focus mode
+- Preserve the natural input flow
+
+---
+
+OUTPUT:
+
+Return ONLY:
+{
+  "tasks": [
+    { "text": "...", "time": "..." }
+  ]
+}
+
+---
 
 Time values ONLY:
 dawn, morning, work, communication, appointment, lunch, afternoon, evening, night, sleep
-
-Sort tasks in this exact order:
-dawn → morning → work → communication → appointment → lunch → afternoon → evening → night → sleep
 
 Return structured JSON only.
 `
