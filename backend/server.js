@@ -90,7 +90,7 @@ const normalizeTasks = (value) => {
       const text = typeof task.text === "string" ? task.text.trim() : "";
       const time =
         typeof task.time === "string" ? task.time.trim().toLowerCase() : "";
-        
+
       const reason = typeof task.reason === "string" ? task.reason.trim() : "";
 
       if (!text || !ORGANIZE_TIME_VALUES.has(time)) {
@@ -111,11 +111,20 @@ const normalizeTasks = (value) => {
 const buildPlanFromTasks = (tasks) =>
   tasks.reduce(
     (plan, task) => {
-      if (task.time === "work") {
-        plan.Work.push(task.text);
-      } else {
-        plan.Personal.push(task.text);
-      }
+      const lowerText = task.text.toLowerCase();
+
+if (
+  task.time === "work" ||
+  lowerText.includes("boss") ||
+  lowerText.includes("client") ||
+  lowerText.includes("report") ||
+  lowerText.includes("presentation") ||
+  lowerText.includes("email")
+) {
+  plan.Work.push(task.text);
+} else {
+  plan.Personal.push(task.text);
+}
 
       return plan;
     },
@@ -190,7 +199,8 @@ const parseOrganizePayloadFromMessage = (message) => {
 
 // ================== ORGANIZE ROUTE ==================
 app.post("/organize", async (req, res) => {
-  const { text } = req.body;
+  const { text, mode } = req.body;
+  const organizeMode = mode === "focus" ? "focus" : "full";
 
   if (typeof text !== "string" || !text.trim()) {
     return res.status(400).json({ error: "Text is required" });
@@ -249,169 +259,64 @@ app.post("/organize", async (req, res) => {
           content: `
 You are an advanced productivity assistant.
 
-Convert user input into a structured task list for two app experiences:
-1. Focus Mode
-2. Full View
+Convert user input into a structured task list.
 
-========================
-FOCUS MODE — PRIMARY
-========================
-CRITICAL TEXT PRESERVATION RULE:
+Extract all actionable tasks.
+Keep wording close to the user.
+Preserve urgency words exactly.
+Do not remove meaning.
+Do not merge unrelated tasks.
+Split large tasks if needed.
 
-You MUST preserve the original meaning and urgency of each task.
+Each task must include:
+- text
+- time
+- reason
 
-- DO NOT remove urgency words
-- DO NOT rewrite away urgency
-- DO NOT simplify tasks in a way that removes urgency
-
-If the user includes:
-asap, urgent, urgently, now, immediately, deadline, due, overdue, today, tonight, tomorrow
-
-You MUST keep that exact word in the final task text.
-
-Examples:
-"reply to boss email asap" → "reply to boss email asap"
-"send overdue invoice" → "send overdue invoice"
-Focus Mode is for ASD/ADHD users.
-Tasks must be ordered so the first task is the best next action.
-
-FINAL ORDERING PRIORITY:
-
-1. Urgency
-2. Startability
-3. Logical grouping
-4. Time realism
-
-========================
-URGENCY RULE — HIGHEST PRIORITY
-========================
-
-Urgency overrides everything.
-
-If a task contains or implies:
-asap, urgent, urgently, now, immediately, deadline, due, overdue, today, tonight, tomorrow
-
-Then:
-- It must be placed before non-urgent tasks
-- It must come before comfort/leisure tasks
-- Preserve the urgency word in the task text
-
-Comfort/leisure tasks include:
-breakfast, TV, games, scrolling, relaxing
-
-Examples:
-Input: "watch TV, enjoy breakfast, reply to boss email asap"
-Correct first task: "reply to boss email asap"
-
-Input: "enjoy breakfast, send overdue invoice"
-Correct first task: "send overdue invoice"
-
-========================
-STARTABILITY RULE
-========================
-
-Only apply startability when no urgent task exists.
-
-Prefer small, easy actions first.
-
-Good starter tasks include:
-check, open, review, reply, send, read, list
-
-Heavy tasks should not be first if an easier non-urgent task exists.
-
-Heavy tasks include:
-finish, complete, write, build, prepare, report, presentation, organize, clean house
-
-Socially demanding tasks should not be first if an easier non-urgent task exists.
-
-Socially demanding tasks include:
-call, meet, discuss, boss, client
-
-========================
-GROUP ORDERING — SECONDARY
-========================
-
-Only apply group ordering when no urgent task exists.
-
-Group 1 — Passive / zero-pressure:
-check, open, review, read, calendar
-
-Group 2 — Light actions:
-reply, send, email, message, quick admin
-
-Group 3 — Medium effort:
-plan, organize part, draft, outline
-
-Group 4 — Heavy work:
-report, presentation, write, build, create, prepare
-
-Group 5 — Social / emotional:
-call, meeting, discuss, boss, client
-
-Order:
-Group 1 before Group 2
-Group 2 before Group 3
-Group 3 before Group 4
-Group 4 before Group 5
-
-========================
-FLOW RULE
-========================
-
-Keep related tasks together when possible.
-Order grouped tasks from small to big.
-Do not jump randomly between unrelated contexts unless urgency requires it.
-
-========================
-TIME REALISM RULE
-========================
-
-Time is a constraint, not the main priority system.
-
-Rules:
-- Do not create impossible sequences
-- Sleep must be last
-- Morning tasks usually come before later tasks unless urgency overrides them
-
-========================
-FULL VIEW — SECONDARY
-========================
-
-Full View shows the complete list.
-Users can reorder tasks themselves.
-Time labels are hints, not priority drivers.
-
-========================
-OUTPUT RULES
-========================
-
-- Extract all actionable tasks
-- Keep tasks concise, but NEVER remove urgency or meaning.
-- Do not merge unrelated tasks
-- Split large tasks if needed
-- Each task must include a "text" field
-- Each task must include a "time" field
-- Each task must include a "reason" field
-- The "reason" field may be either a short string or null
-- Return tasks in Focus Mode order
-- Do not sort purely by time
-- Do not sort purely by importance
-- Do not return priorities
-- Do not return plan
-- The reason must be one short sentence explaining why this task is useful to do next
-- Use only the user's words and context
-- Do not invent facts
-- If the only clear reason is urgency, use: "It was marked urgent."
-- Return JSON only
-
-Time values only:
+Allowed time values:
 dawn, morning, work, communication, appointment, lunch, afternoon, evening, night, sleep
 
-Output format:
+Mode: ${organizeMode}
+
+If mode is "full":
+- use a natural, readable order
+- do not over-optimize reordering
+
+If mode is "focus":
+
+1. Urgent tasks first
+(tasks containing: asap, urgent, today, tomorrow, tonight, now, immediately, deadline, due, overdue)
+
+2. Starter / low-friction tasks next
+Examples: shower, brush teeth, breakfast
+
+3. Work flow:
+- context (check, review, read, messages)
+- clarification (call, client, boss)
+- planning (plan, outline, draft)
+- execution (report, write, build, finish)
+
+4. Do not create impossible flows
+
+5. Sleep must be last
+6. For routine tasks, prefer: shower → brush teeth → breakfast.
+7. If there is any work task, include a work-start transition task.
+
+Use exactly:
+{ "text": "go work", "time": "work", "reason": "Starts your work block." }
+
+Place it:
+- after starter/routine tasks
+- before the first work task
+
+reason:
+- short practical sentence or null
+- do not invent context
+- use "It was marked urgent." only when the task text itself contains an urgent word
+
+Return JSON only in this shape:
 {
-  "tasks": [
-    { "text": "...", "time": "...", "reason": "..." }
-  ]
+  "tasks": [{ "text": "...", "time": "...", "reason": "..." }]
 }
 
 Return structured JSON only.
@@ -437,6 +342,7 @@ Return structured JSON only.
       hasParsed: message?.parsed !== undefined && message?.parsed !== null,
       contentType: Array.isArray(message?.content) ? "array" : typeof message?.content,
       hasRefusal: Boolean(message?.refusal),
+      mode: organizeMode,
       rawContentPreview: rawContentText ? rawContentText.slice(0, 500) : null,
     });
 
