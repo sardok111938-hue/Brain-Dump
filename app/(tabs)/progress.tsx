@@ -1,286 +1,368 @@
-import { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-type HistoryItem = {
-  input: string;
-  result: any;
-  timestamp: number;
-};
+import { useHistory } from '@/hooks/useHistory';
 
-const HISTORY_KEY = "brainDumpHistory";
+const WEEKLY_TREND_LABELS = {
+  up: 'Improving',
+  down: 'Dropping',
+  flat: 'Stable',
+  none: 'Not enough data',
+} as const;
 
 export default function ProgressScreen() {
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [streak, setStreak] = useState(0);
-  const [totalEntries, setTotalEntries] = useState(0);
-  const [totalTasks, setTotalTasks] = useState(0);
-  const [weeklyTasks, setWeeklyTasks] = useState(0);
-  const [weeklyDays, setWeeklyDays] = useState(0);
-
-  useEffect(() => {
-    loadHistory();
-  }, []);
-
-  const loadHistory = async () => {
-    try {
-      const json = await AsyncStorage.getItem(HISTORY_KEY);
-      if (json) {
-        const stored: HistoryItem[] = JSON.parse(json);
-        setHistory(stored);
-        calculateStats(stored);
-      }
-    } catch (error) {
-      console.error("Failed to load history:", error);
-    }
-  };
-
-  const calculateStats = (items: HistoryItem[]) => {
-    setTotalEntries(items.length);
-
-    let tasks = 0;
-    items.forEach((item) => {
-      if (item.result && item.result.tasks) {
-        tasks += item.result.tasks.length;
-      }
-    });
-    setTotalTasks(tasks);
-
-    // Calculate streak
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const hasEntryToday = items.some((item) => {
-      const itemDate = new Date(item.timestamp);
-      itemDate.setHours(0, 0, 0, 0);
-      return itemDate.getTime() === today.getTime();
-    });
-
-    if (!hasEntryToday) {
-      setStreak(0);
-    } else {
-      let currentStreak = 1;
-      let checkDate = new Date(today);
-      checkDate.setDate(checkDate.getDate() - 1);
-      while (true) {
-        const hasEntry = items.some((item) => {
-          const itemDate = new Date(item.timestamp);
-          itemDate.setHours(0, 0, 0, 0);
-          return itemDate.getTime() === checkDate.getTime();
-        });
-        if (!hasEntry) break;
-        currentStreak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      }
-      setStreak(currentStreak);
-    }
-
-    // Weekly
-    const weekAgo = new Date();
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    const weeklyItems = items.filter(
-      (item) => new Date(item.timestamp) >= weekAgo
-    );
-    const uniqueDays = new Set<number>();
-    let weekTasks = 0;
-    weeklyItems.forEach((item) => {
-      const date = new Date(item.timestamp);
-      date.setHours(0, 0, 0, 0);
-      uniqueDays.add(date.getTime());
-      if (item.result && item.result.tasks) {
-        weekTasks += item.result.tasks.length;
-      }
-    });
-    setWeeklyDays(uniqueDays.size);
-    setWeeklyTasks(weekTasks);
-  };
+  const { progressStats } = useHistory();
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Progress</Text>
-        <Text style={styles.subtitle}>Track your daily brain dump habits</Text>
-      </View>
-
-      <View style={styles.statsCard}>
-        <Text style={styles.statLabel}>Current Streak</Text>
-        <Text style={styles.streakNumber}>{streak}</Text>
-        <Text style={styles.streakUnit}>days</Text>
-      </View>
-
-      <View style={styles.row}>
-        <View style={styles.miniCard}>
-          <Text style={styles.miniNumber}>{totalEntries}</Text>
-          <Text style={styles.miniLabel}>Total Entries</Text>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Progress</Text>
+          <Text style={styles.subtitle}>Small wins add up. Keep your momentum going.</Text>
         </View>
-        <View style={styles.miniCard}>
-          <Text style={styles.miniNumber}>{totalTasks}</Text>
-          <Text style={styles.miniLabel}>Total Tasks</Text>
+
+        <View style={styles.heroCard}>
+          <View style={styles.heroGlowOne} />
+          <View style={styles.heroGlowTwo} />
+
+          <Text style={styles.heroEmoji}>🔥</Text>
+          <Text style={styles.heroLabel}>Current streak</Text>
+          <Text style={styles.heroNumber}>{progressStats.streak}</Text>
+          <Text style={styles.heroFootnote}>
+            {progressStats.todayUsage ? 'You showed up today. Nice.' : 'Log a session today to keep it moving.'}
+          </Text>
         </View>
-      </View>
 
-      <View style={styles.weeklyCard}>
-        <Text style={styles.weeklyTitle}>This Week</Text>
-        <Text style={styles.weeklyText}>You planned {weeklyTasks} tasks</Text>
-        <Text style={styles.weeklyText}>You used the app {weeklyDays} days</Text>
-      </View>
+        <View style={styles.grid}>
+          <StatCard value={progressStats.totalEntries} label="Sessions" tone="teal" />
+          <StatCard value={progressStats.totalTasks} label="Planned" tone="amber" />
+          <StatCard value={progressStats.completedTasks} label="Completed" tone="green" />
+          <StatCard value={`${progressStats.completionRate}%`} label="Rate" tone="blue" />
+        </View>
 
-      <View style={styles.visualCard}>
-        <Text style={styles.visualTitle}>Daily Tasks (Last 7 Days)</Text>
-        {Array.from({ length: 7 }, (_, i) => {
-          const date = new Date();
-          date.setDate(date.getDate() - i);
-          date.setHours(0, 0, 0, 0);
-          const dayItems = history.filter((item) => {
-            const itemDate = new Date(item.timestamp);
-            itemDate.setHours(0, 0, 0, 0);
-            return itemDate.getTime() === date.getTime();
-          });
-          const dayTasks = dayItems.reduce(
-            (sum, item) => sum + (item.result?.tasks?.length || 0),
-            0
-          );
-          const dayName = date.toLocaleDateString("en-US", { weekday: "short" });
-          return (
-            <View key={i} style={styles.dayRow}>
-              <Text style={styles.dayName}>{dayName}</Text>
-              <Text style={styles.dayTasks}>{dayTasks} tasks</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>This week</Text>
+          <Text style={styles.cardText}>
+            {progressStats.weeklyTasks} tasks planned in the last 7 days.
+          </Text>
+          <Text style={styles.cardText}>
+            {progressStats.weeklyDays} active days with at least one saved session.
+          </Text>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Insights</Text>
+
+          <Insight label="Best streak" value={`${progressStats.bestStreak} days`} />
+          <Insight label="Avg tasks / session" value={progressStats.averageTasksPerSession.toFixed(1)} />
+          <Insight label="Most productive day" value={progressStats.mostProductiveDay ?? 'No completed tasks yet'} />
+          <Insight
+            label="Voice vs text"
+            value={`${progressStats.voiceSessionCount} voice · ${progressStats.textSessionCount} text`}
+          />
+          <Insight label="Weekly trend" value={WEEKLY_TREND_LABELS[progressStats.weeklyCompletionTrend]} last />
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Last 7 days</Text>
+
+          {progressStats.dailyBreakdown.map((day) => (
+            <View key={day.dateKey} style={styles.dayRow}>
+              <Text style={styles.dayLabel}>{day.label}</Text>
+
+              <View style={styles.dayMetric}>
+                <Text style={styles.dayTasks}>{day.taskCount} tasks</Text>
+                <Text style={styles.dayCompleted}>{day.completedCount} done</Text>
+              </View>
             </View>
-          );
-        })}
-      </View>
-    </ScrollView>
+          ))}
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function StatCard({
+  value,
+  label,
+  tone,
+}: {
+  value: number | string;
+  label: string;
+  tone: 'teal' | 'amber' | 'green' | 'blue';
+}) {
+  return (
+    <View style={[styles.statCard, styles[`statCard_${tone}`]]}>
+      <Text style={[styles.statValue, styles[`statValue_${tone}`]]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function Insight({
+  label,
+  value,
+  last = false,
+}: {
+  label: string;
+  value: string;
+  last?: boolean;
+}) {
+  return (
+    <View style={[styles.insightRow, last && styles.insightRowLast]}>
+      <Text style={styles.insightLabel}>{label}</Text>
+      <Text style={styles.insightValue}>{value}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    paddingTop: 60,
-    backgroundColor: "#F8FAFC",
-    flexGrow: 1,
-  },
+  safeArea: {
+  flex: 1,
+  backgroundColor: '#F4F7FB',
+},
+
+container: {
+  padding: 20,
+  paddingBottom: 130,
+  backgroundColor: '#F4F7FB',
+},
+
   header: {
-    marginBottom: 20,
+    marginBottom: 18,
   },
+
   title: {
     fontSize: 32,
-    fontWeight: "800",
-    color: "#0F172A",
+    fontWeight: '900',
+    color: '#0F172A',
+    letterSpacing: -0.7,
   },
+
   subtitle: {
-    color: "#64748B",
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 22,
+    marginTop: 6,
+    fontSize: 14.5,
+    lineHeight: 21,
+    color: '#64748B',
+    fontWeight: '600',
   },
-  statsCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 24,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
+
+  heroCard: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: 30,
+    padding: 22,
+    alignItems: 'center',
+    marginBottom: 16,
+    backgroundColor: '#ECFEFF',
+    borderWidth: 1,
+    borderColor: '#99F6E4',
+    shadowColor: '#0F766E',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.12,
     shadowRadius: 22,
-    elevation: 6,
-    marginBottom: 18,
+    elevation: 5,
   },
+
+  heroGlowOne: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    top: -55,
+    right: -45,
+    backgroundColor: '#FDE68A',
+    opacity: 0.75,
+  },
+
+  heroGlowTwo: {
+    position: 'absolute',
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    bottom: -50,
+    left: -35,
+    backgroundColor: '#A7F3D0',
+    opacity: 0.8,
+  },
+
+  heroEmoji: {
+    fontSize: 28,
+    marginBottom: 4,
+  },
+
+  heroLabel: {
+    fontSize: 13,
+    color: '#0F766E',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+
+  heroNumber: {
+    fontSize: 62,
+    fontWeight: '900',
+    color: '#0F766E',
+    lineHeight: 70,
+    letterSpacing: -1,
+  },
+
+  heroFootnote: {
+    marginTop: 2,
+    fontSize: 13.5,
+    color: '#475569',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 16,
+  },
+
+  statCard: {
+    width: '48%',
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+  },
+
+  statCard_teal: {
+    backgroundColor: '#ECFEFF',
+    borderColor: '#99F6E4',
+  },
+
+  statCard_amber: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+
+  statCard_green: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+
+  statCard_blue: {
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
+  },
+
+  statValue: {
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+
+  statValue_teal: {
+    color: '#0F766E',
+  },
+
+  statValue_amber: {
+    color: '#D97706',
+  },
+
+  statValue_green: {
+    color: '#16A34A',
+  },
+
+  statValue_blue: {
+    color: '#2563EB',
+  },
+
   statLabel: {
-    fontSize: 16,
-    color: "#64748B",
-    marginBottom: 8,
-  },
-  streakNumber: {
-    fontSize: 64,
-    fontWeight: "800",
-    color: "#22C55E",
-  },
-  streakUnit: {
-    fontSize: 18,
-    color: "#64748B",
     marginTop: 4,
+    fontSize: 13,
+    color: '#475569',
+    fontWeight: '700',
   },
-  row: {
-    flexDirection: "row",
-    gap: 12,
-    marginBottom: 18,
+
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 17,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    marginBottom: 16,
+    shadowColor: '#FB923C',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.055,
+    shadowRadius: 18,
+    elevation: 3,
   },
-  miniCard: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    elevation: 6,
+
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginBottom: 9,
+    letterSpacing: -0.2,
   },
-  miniNumber: {
-    fontSize: 32,
-    fontWeight: "700",
-    color: "#0F172A",
-  },
-  miniLabel: {
+
+  cardText: {
     fontSize: 14,
-    color: "#64748B",
-    marginTop: 4,
+    color: '#475569',
+    lineHeight: 21,
+    marginBottom: 5,
+    fontWeight: '600',
   },
-  weeklyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    elevation: 6,
-    marginBottom: 18,
+
+  insightRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  weeklyTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#0F172A",
-    marginBottom: 12,
+
+  insightRowLast: {
+    borderBottomWidth: 0,
   },
-  weeklyText: {
-    fontSize: 15,
-    color: "#334155",
-    marginBottom: 6,
+
+  insightLabel: {
+    fontSize: 13.5,
+    color: '#64748B',
+    fontWeight: '700',
   },
-  visualCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    elevation: 6,
+
+  insightValue: {
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '800',
+    maxWidth: '58%',
+    textAlign: 'right',
   },
-  visualTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#0F172A",
-    marginBottom: 12,
-  },
+
   dayRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  dayName: {
-    fontSize: 15,
-    color: "#0F172A",
+
+  dayLabel: {
+    color: '#0F172A',
+    fontSize: 14,
+    fontWeight: '800',
   },
+
+  dayMetric: {
+    alignItems: 'flex-end',
+  },
+
   dayTasks: {
-    fontSize: 15,
-    color: "#64748B",
+    color: '#0F172A',
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+
+  dayCompleted: {
+    color: '#64748B',
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '600',
   },
 });

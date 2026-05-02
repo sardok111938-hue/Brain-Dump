@@ -1,610 +1,441 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
 import {
+  Alert,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-  TextInput,
-  ScrollView,
-  ActivityIndicator,
-} from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useLocalSearchParams } from "expo-router";
-import * as Haptics from "expo-haptics";
-import { Audio } from "expo-av";
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-type HistoryItem = {
-  input: string;
-  result: any;
-  timestamp: number;
-};
-
-const HISTORY_KEY = "brainDumpHistory";
+import { Controls } from '@/components/Controls';
+import { ErrorMessage } from '@/components/ErrorMessage';
+import { FocusCard } from '@/components/FocusCard';
+import { Header } from '@/components/Header';
+import { InputCard } from '@/components/InputCard';
+import { LoadingOverlay } from '@/components/LoadingOverlay';
+import { ProgressMessage } from '@/components/ProgressMessage';
+import { SupportPopup } from '@/components/SupportPopup';
+import { TaskList } from '@/components/TaskList';
+import { useAudio } from '@/hooks/useAudio';
+import { useHistory } from '@/hooks/useHistory';
+import { useSupportPopup } from '@/hooks/useSupportPopup';
+import { useTasks } from '@/hooks/useTasks';
 
 export default function HomeScreen() {
-  const [input, setInput] = useState("");
-  const [result, setResult] = useState<any>(null);
-  const [recording, setRecording] = useState<any>(null);
-  const [recordingStatus, setRecordingStatus] = useState("idle");
-  const [loading, setLoading] = useState(false);
-  const [completedTasks, setCompletedTasks] = useState<number[]>([]);
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [streak, setStreak] = useState(0);
-  const [todayUsage, setTodayUsage] = useState(false);
-  const [progressMessage, setProgressMessage] = useState<string | null>(null);
+  const {
+  supportPopupVisible,
+  closeSupportPopup,
+  markSupportPopupShown,
+  showSupportPopup,
+} = useSupportPopup();
+
+  const params = useLocalSearchParams<{
+    selectedTimestamp?: string;
+    selectedHistoryId?: string;
+    selectionKey?: string;
+  }>();
+
+  const selectedTimestamp = useMemo(() => {
+    const rawValue = Array.isArray(params.selectedTimestamp)
+      ? params.selectedTimestamp[0]
+      : params.selectedTimestamp;
+
+    if (!rawValue) return null;
+
+    const parsedValue = Number(rawValue);
+    return Number.isFinite(parsedValue) ? parsedValue : null;
+  }, [params.selectedTimestamp]);
+
+  const selectionKey = useMemo(
+    () =>
+      (Array.isArray(params.selectionKey)
+        ? params.selectionKey[0]
+        : params.selectionKey) ?? null,
+    [params.selectionKey]
+  );
+
+  const selectedHistoryId = useMemo(
+    () =>
+      (Array.isArray(params.selectedHistoryId)
+        ? params.selectedHistoryId[0]
+        : params.selectedHistoryId) ?? null,
+    [params.selectedHistoryId]
+  );
+
+  const { streak, todayUsage, selectedEntry, latestSession, upsertHistoryEntry } =
+    useHistory(selectedTimestamp, selectedHistoryId);
+
+ const {
+  input,
+  setInput,
+  result,
+  currentTask,
+  loading,
+  error,
+  progressMessage,
+  saveWarning,
+  handleOrganize,
+  handleVoiceTranscript,
+  handleReorderTasks,
+  toggleTaskCompleted,
+  setTaskPriority,
+  clearTasks,
+} = useTasks({
+  saveHistoryEntry: upsertHistoryEntry,
+  selectedHistoryEntry: selectedEntry,
+  latestCachedSession: latestSession,
+  selectionKey,
+});
 
 
+  const { recordingStatus, error: audioError, toggleRecording } = useAudio({
+  onTranscript: async (transcript) => {
+    setShowFocusCompletionEndState(false);
+    await handleVoiceTranscript(transcript, focusModeRequested ? 'focus' : 'full');
 
-  const params = useLocalSearchParams<{ selectedTimestamp?: string }>();
+    showSupportPopup();
+  },
+});
 
-  const loadHistory = async () => {
-    try {
-      const json = await AsyncStorage.getItem(HISTORY_KEY);
-      if (json) {
-        const stored: HistoryItem[] = JSON.parse(json);
-        const sorted = stored.sort((a, b) => b.timestamp - a.timestamp);
-        setHistory(sorted);
-      }
-    } catch (error) {
-      console.error("Failed to load history:", error);
-    }
-  };
+  // 🔹 Focus state
+  const [focusModeRequested, setFocusModeRequested] = useState(false);
+  const [showFocusCompletionEndState, setShowFocusCompletionEndState] = useState(false);
+  const [focusStarted, setFocusStarted] = useState(false);
+  const [focusCardVisible, setFocusCardVisible] = useState(true);
 
-  const calculateStreak = (historyItems: HistoryItem[]) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  // 🔹 Timer state
+  const FOCUS_DURATION_SECONDS = 25 * 60;
+  const [focusSecondsLeft, setFocusSecondsLeft] = useState(FOCUS_DURATION_SECONDS);
 
-    const hasEntryToday = historyItems.some(item => {
-      const itemDate = new Date(item.timestamp);
-      itemDate.setHours(0, 0, 0, 0);
-      return itemDate.getTime() === today.getTime();
-    });
-
-    setTodayUsage(hasEntryToday);
-
-    if (!hasEntryToday) {
-      setStreak(0);
-      return;
-    }
-
-    let currentStreak = 1;
-    let checkDate = new Date(today);
-    checkDate.setDate(checkDate.getDate() - 1);
-
-    while (true) {
-      const hasEntry = historyItems.some(item => {
-        const itemDate = new Date(item.timestamp);
-        itemDate.setHours(0, 0, 0, 0);
-        return itemDate.getTime() === checkDate.getTime();
-      });
-      if (!hasEntry) break;
-      currentStreak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    }
-
-    setStreak(currentStreak);
-  };
-
-useEffect(() => {
-  loadHistory();
-}, []);
-
-useEffect(() => {
-  if (history.length > 0) {
-    calculateStreak(history);
-  } else {
-    setTodayUsage(false);
-    setStreak(0);
-  }
-}, [history]);
-
-  useEffect(() => {
-    if (!history.length || !params.selectedTimestamp) {
-      return;
-    }
-
-    const selectedId = Number(params.selectedTimestamp);
-    const selected = history.find((item) => item.timestamp === selectedId);
-    if (selected) {
-      loadHistoryResult(selected);
-    }
-  }, [history, params.selectedTimestamp]);
-
-  useEffect(() => {
-    setProgressMessage(null);
-  }, [input]);
-
-  useEffect(() => {
-    // Empty state visibility is controlled by conditionals in JSX.
-  }, [result, loading]);
-
-
-  const saveHistory = async (items: HistoryItem[]) => {
-    try {
-      await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(items));
-    } catch (error) {
-      console.error("Failed to save history:", error);
-    }
-  };
-
-const addHistoryEntry = async (entry: HistoryItem) => {
-  setHistory((prev) => {
-    const nextHistory = [entry, ...prev].slice(0, 20);
-    saveHistory(nextHistory);
-    return nextHistory;
-  });
-};
-  const loadHistoryResult = (item: HistoryItem) => {
-    setInput(item.input);
-    setResult(item.result);
-    setCompletedTasks([]);
-  };
-
-  const organizeText = async (text: string) => {
-    try {
-      setLoading(true);
-      await Haptics.selectionAsync();
-      const response = await fetch("http://192.168.0.62:3000/organize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
+  const handleClearTasks = useCallback(() => {
+    Alert.alert(
+      'Clear tasks?',
+      'This will remove your current tasks.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: () => {
+            clearTasks();
+            setShowFocusCompletionEndState(false);
+            setFocusStarted(false);
+            setFocusCardVisible(true);
+            setFocusModeRequested(false);
+            setFocusSecondsLeft(FOCUS_DURATION_SECONDS);
+          },
         },
-        body: JSON.stringify({ text }),
-      });
-
-      const data = await response.json();
-      setResult(data);
-      setCompletedTasks([]);
-      const timestamp = Date.now();
-      const newEntry = { input: text, result: data, timestamp };
-      await addHistoryEntry(newEntry);
-
-
-      // Set progress message
-      const taskCount = data.tasks ? data.tasks.length : 0;
-      setProgressMessage(`You’ve planned ${taskCount} tasks today`);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 🎙️ Start Recording
-  const startRecording = async () => {
-    try {
-      await Audio.requestPermissionsAsync();
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
-
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-
-      setRecording(recording);
-      setRecordingStatus("recording");
-      await Haptics.selectionAsync();
-    } catch (err) {
-      console.error("Start recording error:", err);
-    }
-  };
-
-  // ⏹ Stop Recording → Transcribe → Auto Organize
-  const stopRecording = async () => {
-    if (!recording) return;
-    
-    try {
-      setRecordingStatus("stopped");
-      await Haptics.selectionAsync();
-      setLoading(true);
-      await recording.stopAndUnloadAsync();
-
-      const uri = recording.getURI();
-
-      const formData = new FormData();
-      formData.append("audio", {
-        uri,
-        name: "recording.m4a",
-        type: "audio/mp4",
-      } as any);
-
-      const response = await fetch("http://192.168.0.62:3000/transcribe", {
-        method: "POST",
-        body: formData,
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      const data = await response.json();
-
-      setInput(data.text);
-
-      // auto organize
-      await organizeText(data.text);
-
-      setRecording(null);
-    } catch (err) {
-      console.error("Stop recording error:", err);
-      setLoading(false);
-    }
-  };
-
-  // 🧠 Organize (manual)
-  const handleOrganize = async () => {
-    await organizeText(input);
-  };
-
-  // 🔥 Organize helper
-  const handleOrganizeWithText = async (text: string) => {
-    await organizeText(text);
-  };
-
-  const toggleTaskCompleted = (index: number) => {
-    setCompletedTasks((prev) =>
-      prev.includes(index)
-        ? prev.filter((item) => item !== index)
-        : [...prev, index]
+      ]
     );
+  }, [FOCUS_DURATION_SECONDS, clearTasks]);
+
+  const handleSupport = useCallback((amount: 2 | 5 | 10) => {
+  closeSupportPopup();
+
+  const paypalLinks = {
+    2: 'https://www.paypal.com/ncp/payment/LK2963LGGYFMC',
+    5: 'https://www.paypal.com/ncp/payment/NN34JJJLDX5K2',
+    10: 'https://www.paypal.com/ncp/payment/2DFLAXY4C8VKN',
   };
 
-  return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Brain Dump</Text>
-        <Text style={styles.subtitle}>
-          Capture your thoughts, organize them clearly, and revisit your best ideas.
-        </Text>
-        <Text style={styles.greeting}>
-          {todayUsage ? `You're on a ${streak} day streak 🔥` : "Start your day — dump everything"}
-        </Text>
-      </View>
+  Linking.openURL(paypalLinks[amount]).catch(() => {
+    Alert.alert('Could not open PayPal', 'Please try again later.');
+  });
+}, [closeSupportPopup]);
 
-      <View style={styles.inputCard}>
-        <TextInput
-          style={styles.input}
-          placeholder="Type your thoughts..."
-          placeholderTextColor="#94a3b8"
-          multiline
+  // 🔹 Derived state
+  const activeError = audioError ?? error;
+
+  const activeTasks = useMemo(
+    () => result?.tasks.filter((task) => !task.completed) ?? [],
+    [result?.tasks]
+  );
+
+  const hasActiveTasks = activeTasks.length > 0;
+  const hasCurrentTask = Boolean(currentTask);
+  const isFocusModeActive = focusModeRequested && hasCurrentTask;
+
+  const shouldShowFocusCard = Boolean(
+    focusModeRequested && hasCurrentTask && currentTask && focusCardVisible
+  );
+  // 🔹 Reset when task changes
+  useEffect(() => {
+    setFocusStarted(false);
+    setFocusSecondsLeft(FOCUS_DURATION_SECONDS);
+    setFocusCardVisible(true);
+  }, [FOCUS_DURATION_SECONDS, currentTask?.id]);
+
+  // 🔹 Timer countdown
+  useEffect(() => {
+    if (!focusStarted || !isFocusModeActive) return;
+
+    const timer = setInterval(() => {
+      setFocusSecondsLeft((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [focusStarted, isFocusModeActive]);
+
+  // 🔹 Format timer
+  const focusTimeLabel = useMemo(() => {
+    const minutes = Math.floor(focusSecondsLeft / 60);
+    const seconds = focusSecondsLeft % 60;
+
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  }, [focusSecondsLeft]);
+
+  // 🔹 Reset completion state
+  useEffect(() => {
+    if (showFocusCompletionEndState && hasCurrentTask) {
+      setShowFocusCompletionEndState(false);
+    }
+  }, [hasCurrentTask, showFocusCompletionEndState]);
+
+  const handleInputChange = useCallback(
+    (nextInput: string) => {
+      setShowFocusCompletionEndState(false);
+      setInput(nextInput);
+    },
+    [setInput]
+  );
+
+  const handleStartOrganize = useCallback(async () => {
+  setShowFocusCompletionEndState(false);
+
+  await handleOrganize(focusModeRequested ? 'focus' : 'full');
+
+  showSupportPopup();
+}, [focusModeRequested, handleOrganize, showSupportPopup]);
+
+
+
+  const handleToggleTask = useCallback(
+    (taskId: string) => {
+      const targetTask = result?.tasks.find((task) => task.id === taskId);
+      const focusSourceTasks =
+        isFocusModeActive && result?.focusTasks?.length ? result.focusTasks : result?.tasks ?? [];
+      const unfinishedTaskCount = focusSourceTasks.filter((task) => !task.completed).length;
+      const isCompletingLastFocusedTask =
+        !!targetTask &&
+        isFocusModeActive &&
+        !targetTask.completed &&
+        unfinishedTaskCount === 1;
+
+      if (isCompletingLastFocusedTask) {
+        setFocusStarted(false);
+        setFocusCardVisible(true);
+        setShowFocusCompletionEndState(true);
+      } else if (targetTask?.completed) {
+        setShowFocusCompletionEndState(false);
+      }
+
+      toggleTaskCompleted(taskId);
+    },
+    [isFocusModeActive, result?.focusTasks, result?.tasks, toggleTaskCompleted]
+  );
+
+  const listHeader = useMemo(
+    () => (
+      <View style={styles.headerContent}>
+        {loading && !result?.tasks.length ? <LoadingOverlay /> : null}
+        {activeError ? <ErrorMessage message={activeError} /> : null}
+        {saveWarning ? <ErrorMessage message={saveWarning} /> : null}
+        {!isFocusModeActive && progressMessage ? (
+          <ProgressMessage message={progressMessage} />
+        ) : null}
+
+        <Header
+          streak={streak}
+          todayUsage={todayUsage}
+          focusModeEnabled={focusModeRequested}
+          onToggleFocus={() => {
+            setFocusStarted(false);
+            setFocusCardVisible(true);
+            setFocusModeRequested((value) => !value);
+          }}
+          onClearTasks={handleClearTasks}
+        />
+
+        <InputCard
           value={input}
-          onChangeText={setInput}
-          textAlignVertical="top"
+          onChangeText={handleInputChange}
+          disabled={loading || recordingStatus === 'transcribing'}
+        />
+
+        <Controls
+          onOrganize={handleStartOrganize}
+          organizeDisabled={!input.trim() || loading || recordingStatus !== 'idle'}
+          recordingDisabled={loading || recordingStatus === 'transcribing'}
+          loading={loading}
+          recordingStatus={recordingStatus}
+          onRecordingToggle={toggleRecording}
         />
       </View>
+    ),
+    [
+      activeError,
+      focusModeRequested,
+      handleInputChange,
+      handleStartOrganize,
+      handleClearTasks,
+      input,
+      isFocusModeActive,
+      loading,
+      progressMessage,
+      recordingStatus,
+      result,
+      saveWarning,
+      streak,
+      todayUsage,
+      toggleRecording,
+    ]
+  );
 
-      <View style={styles.controls}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.primaryButton,
-            pressed && styles.buttonPressed,
-            loading && styles.disabledButton,
-          ]}
-          onPress={handleOrganize}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? "Processing..." : "Organize"}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.micButton,
-            recordingStatus === "recording" && styles.micActive,
-            pressed && styles.buttonPressed,
-            loading && styles.disabledButton,
-          ]}
-          onPress={
-            recordingStatus === "recording" ? stopRecording : startRecording
-          }
-          disabled={loading}
-        >
-          <View
-            style={[
-              styles.micInner,
-              recordingStatus === "recording" && styles.micInnerActive,
-            ]}
+  return (
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        {focusModeRequested && !focusCardVisible && hasCurrentTask ? (
+          <Pressable
+            onPress={() => {
+              setFocusStarted(false);
+              setFocusCardVisible(true);
+            }}
+            style={styles.floatingFocusButton}
           >
-            <Text style={styles.micText}>
-              {recordingStatus === "recording" ? "⏹ Recording..." : "🎙️ Hold to speak"}
-            </Text>
-          </View>
-        </Pressable>
-      </View>
+            <Text style={styles.floatingFocusText}>← Focus</Text>
+          </Pressable>
+        ) : null}
 
-      {loading && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#6366F1" />
-        </View>
-      )}
+        {hasActiveTasks && result && !shouldShowFocusCard && !showFocusCompletionEndState ? (
+          <TaskList
+          tasks={focusModeRequested && result.focusTasks?.length ? result.focusTasks : result.tasks}
+          onReorder={handleReorderTasks}
+          onToggleTask={handleToggleTask}
+          onSetTaskPriority={setTaskPriority}
+          ListHeaderComponent={listHeader}
+          />
+        ) : (
+          <ScrollView
+            contentContainerStyle={styles.emptyContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator={false}
+          >
+            {listHeader}
 
-      {progressMessage && (
-        <View style={styles.progressMessage}>
-          <Text style={styles.progressText}>{progressMessage}</Text>
-        </View>
-      )}
+            {shouldShowFocusCard && currentTask ? (
+              <>
+                {progressMessage ? <ProgressMessage message={progressMessage} /> : null}
 
-      {!result && !loading && (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyEmoji}>🧠</Text>
-          <Text style={styles.emptyTitle}>Clear your mind</Text>
-          <Text style={styles.emptyText}>Write anything on your mind — we’ll organize it into clear tasks.</Text>
-        </View>
-      )}
+                <FocusCard
+                  task={currentTask}
+                  started={focusStarted}
+                  timerLabel={focusStarted ? focusTimeLabel : undefined}
+                  onStart={() => setFocusStarted(true)}
+                  onDone={() => handleToggleTask(currentTask.id)}
+                  onViewAll={() => {
+                    setFocusStarted(false);
+                    setFocusCardVisible(false);
+                  }}
+                />
+              </>
+            ) : null}
 
-      {result && (
-        <View style={styles.card}>
-
-          <Text style={styles.sectionTitle}>Tasks</Text>
-          {result.tasks.map((task: string, i: number) => {
-            const completed = completedTasks.includes(i);
-            return (
-              <Pressable
-                key={i}
-                style={({ pressed }) => [styles.taskRow, pressed && styles.taskPressed]}
-                onPress={() => toggleTaskCompleted(i)}
-              >
-                <Text style={[styles.checkbox, completed && styles.checkboxChecked]}>
-                  {completed ? "☑" : "☐"}
-                </Text>
-                <Text style={[styles.taskText, completed && styles.taskTextCompleted]}>
-                  {task}
-                </Text>
-              </Pressable>
-            );
-          })}
-
-          <View style={styles.sectionBlock}>
-            <Text style={styles.sectionTitle}>Plan</Text>
-            {Object.entries(result.plan).map(([category, tasks]: any) => (
-              <View key={category} style={styles.sectionGroup}>
-                <Text style={styles.category}>{category}</Text>
-                {tasks.map((t: string, i: number) => (
-                  <Text key={i} style={styles.item}>
-                    - {t}
-                  </Text>
-                ))}
+            {!hasActiveTasks && result && !showFocusCompletionEndState && !focusModeRequested ? (
+              <View style={styles.completedSessionCard}>
+                <Text style={styles.completedSessionTitle}>All done.</Text>
+                <Text style={styles.completedSessionText}>Add another task if you want.</Text>
               </View>
-            ))}
-          </View>
+            ) : null}
 
-          <View style={styles.sectionBlock}>
-            <Text style={styles.sectionTitle}>Priorities</Text>
-            {Object.entries(result.priorities).map(([level, tasks]: any) => (
-              <View key={level} style={styles.sectionGroup}>
-                <Text style={styles.category}>{level}</Text>
-                {tasks.map((t: string, i: number) => (
-                  <Text key={i} style={styles.item}>
-                    - {t}
-                  </Text>
-                ))}
+            {showFocusCompletionEndState ? (
+              <View style={styles.completedSessionCard}>
+                <Text style={styles.completedSessionTitle}>All done.</Text>
+                <Text style={styles.completedSessionText}>You can stop here.</Text>
               </View>
-            ))}
-          </View>
-        </View>
-      )}
-    </ScrollView>
+            ) : null}
+          </ScrollView>
+        )}
+      </KeyboardAvoidingView>
+
+      <SupportPopup
+        visible={supportPopupVisible}
+        onClose={closeSupportPopup}
+        onMaybeLater={markSupportPopupShown}
+        onSupport={handleSupport}
+      />
+    </SafeAreaView>
   );
 }
-
 const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    paddingTop: 60,
-    backgroundColor: "#F8FAFC",
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F4F7FB',
+  },
+  keyboard: {
+    flex: 1,
+  },
+  emptyContent: {
     flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 140,
+    backgroundColor: '#F4F7FB',
   },
-  header: {
-    marginBottom: 20,
+  headerContent: {
+    paddingBottom: 8,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-  subtitle: {
-    color: "#64748B",
-    marginTop: 8,
-    fontSize: 15,
-    lineHeight: 22,
-    maxWidth: "90%",
-  },
-  greeting: {
-    color: "#22C55E",
-    marginTop: 12,
-    fontSize: 16,
-    fontWeight: "600",
-    lineHeight: 24,
-  },
-  inputCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.06,
-    shadowRadius: 20,
-    elevation: 6,
-    marginBottom: 18,
-  },
-  input: {
-    minHeight: 150,
-    fontSize: 16,
-    color: "#0F172A",
-    lineHeight: 24,
-  },
-  controls: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginBottom: 18,
-  },
-  primaryButton: {
-    flex: 1,
-    backgroundColor: "#6366F1",
-    paddingVertical: 16,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 5,
-  },
-  micButton: {
+
+  completedSessionCard: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
-  },
-  micActive: {
-    backgroundColor: "rgba(239, 68, 68, 0.12)",
-  },
-  micInner: {
-    backgroundColor: "#0F172A",
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 130,
-  },
-  micInnerActive: {
-    backgroundColor: "#EF4444",
-  },
-  micText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  buttonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 16,
-  },
-  loadingOverlay: {
-    marginBottom: 16,
-    alignItems: "center",
-  },
-  progressMessage: {
-    backgroundColor: "#F0FDF4",
-    borderRadius: 16,
-    paddingVertical: 12,
     paddingHorizontal: 16,
-    marginBottom: 16,
+    paddingVertical: 14,
     borderWidth: 1,
-    borderColor: "#DCFCE7",
+    borderColor: '#E2E8F0',
+    marginTop: 2,
   },
-  progressText: {
-    color: "#166534",
-    fontSize: 15,
-    fontWeight: "600",
-    textAlign: "center",
-  },
-  emptyState: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 22,
-    elevation: 6,
-    marginTop: 30,
-    marginBottom: 20,
-  },
-  emptyEmoji: {
-    fontSize: 34,
-    marginBottom: 14,
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#0F172A",
-    marginBottom: 10,
-  },
-  emptyText: {
-    color: "#64748B",
-    fontSize: 16,
-    textAlign: "center",
+  completedSessionTitle: {
+    fontSize: 18,
     lineHeight: 24,
-    maxWidth: "85%",
+    fontWeight: '800',
+    color: '#0F172A',
   },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 22,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 22,
+  completedSessionText: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  floatingFocusButton: {
+    position: 'absolute',
+    bottom: 110,
+    alignSelf: 'center',
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 999,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
     elevation: 6,
-    marginBottom: 30,
+    zIndex: 20,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#0F172A",
-    marginBottom: 10,
-  },
-  sectionBlock: {
-    marginTop: 22,
-  },
-  sectionGroup: {
-    marginTop: 10,
-  },
-  category: {
-    fontWeight: "700",
-    fontSize: 15,
-    color: "#0F172A",
-    marginBottom: 6,
-  },
-  item: {
-    color: "#334155",
-    marginLeft: 10,
-    marginBottom: 6,
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  taskRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    backgroundColor: "#F8FAFC",
-    borderRadius: 18,
-    marginTop: 12,
-  },
-  taskPressed: {
-    opacity: 0.8,
-  },
-  cardPressed: {
-    opacity: 0.92,
-  },
-  checkbox: {
-    fontSize: 18,
-    marginRight: 14,
-    color: "#6366F1",
-  },
-  checkboxChecked: {
-    color: "#22C55E",
-  },
-  taskText: {
-    fontSize: 15,
-    color: "#0F172A",
-    flex: 1,
-    lineHeight: 22,
-  },
-  taskTextCompleted: {
-    textDecorationLine: "line-through",
-    opacity: 0.55,
-  },
-  disabledButton: {
-    opacity: 0.65,
-  },
-  buttonPressed: {
-    transform: [{ scale: 0.97 }],
+  floatingFocusText: {
+    color: '#C2410C',
+    fontSize: 14,
+    fontWeight: '800',
   },
 });
