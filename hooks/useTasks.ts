@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { generateHistoryItemId } from '@/hooks/historyIdentity';
 import {
@@ -7,7 +6,12 @@ import {
   OFFLINE_FALLBACK_MESSAGE,
   SAVE_WARNING_MESSAGE,
 } from '@/hooks/taskMessages';
-import { createTaskResult, sanitizeStoredHistoryItem } from '@/hooks/taskSanitizers';
+import { createTaskResult } from '@/hooks/taskSanitizers';
+import {
+  clearPersistedCurrentTaskState as clearPersistedTaskState,
+  loadCurrentTaskCache,
+  persistCurrentTaskCache as persistTaskCacheEntry,
+} from '@/hooks/taskStorage';
 import { isBackendUnavailableError, organizeTextApi } from '@/services/api';
 import { generateTaskId } from '@/hooks/taskIdentity';
 import {
@@ -25,9 +29,6 @@ type UseTasksOptions = {
   latestCachedSession: HistoryItem | null;
   selectionKey?: string | null;
 };
-
-const CURRENT_TASKS_KEY = 'brainDumpTasks';
-const LATEST_SESSION_CACHE_KEY = 'brainDumpLatestSession';
 
 export const useTasks = ({
   saveHistoryEntry,
@@ -144,7 +145,7 @@ export const useTasks = ({
         source: activeSourceRef.current,
       };
 
-      await AsyncStorage.setItem(CURRENT_TASKS_KEY, JSON.stringify(cacheEntry));
+      await persistTaskCacheEntry(cacheEntry);
     },
     []
   );
@@ -160,7 +161,7 @@ export const useTasks = ({
 
   const clearPersistedCurrentTaskState = useCallback(async () => {
     try {
-      await AsyncStorage.multiRemove([CURRENT_TASKS_KEY, LATEST_SESSION_CACHE_KEY]);
+      await clearPersistedTaskState();
     } catch (caughtError) {
       console.error('Failed to clear current task cache:', caughtError);
     }
@@ -258,7 +259,7 @@ export const useTasks = ({
           }
         }
       }
-     },
+    },
     [
       persistActiveSessionInBackground,
       persistCurrentTaskCacheInBackground,
@@ -337,11 +338,9 @@ export const useTasks = ({
   useEffect(() => {
     let cancelled = false;
 
-    const loadCurrentTaskCache = async () => {
+    const hydrateCurrentTaskCache = async () => {
       try {
-        const rawValue = await AsyncStorage.getItem(CURRENT_TASKS_KEY);
-        const parsedValue = rawValue ? (JSON.parse(rawValue) as unknown) : null;
-        const cachedEntry = sanitizeStoredHistoryItem(parsedValue);
+        const cachedEntry = await loadCurrentTaskCache();
 
         if (cancelled || !cachedEntry) {
           return;
@@ -372,7 +371,7 @@ export const useTasks = ({
       }
     };
 
-    void loadCurrentTaskCache();
+    void hydrateCurrentTaskCache();
 
     return () => {
       cancelled = true;
