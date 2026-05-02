@@ -34,7 +34,7 @@ const connectAbortSignal = (
   controller: AbortController
 ) => {
   if (!signal) {
-    return () => undefined;
+    return () => {};
   }
 
   if (signal.aborted) {

@@ -113,18 +113,18 @@ const buildPlanFromTasks = (tasks) =>
     (plan, task) => {
       const lowerText = task.text.toLowerCase();
 
-if (
-  task.time === "work" ||
-  lowerText.includes("boss") ||
-  lowerText.includes("client") ||
-  lowerText.includes("report") ||
-  lowerText.includes("presentation") ||
-  lowerText.includes("email")
-) {
-  plan.Work.push(task.text);
-} else {
-  plan.Personal.push(task.text);
-}
+      if (
+        task.time === "work" ||
+        lowerText.includes("boss") ||
+        lowerText.includes("client") ||
+        lowerText.includes("report") ||
+        lowerText.includes("presentation") ||
+        lowerText.includes("email")
+      ) {
+        plan.Work.push(task.text);
+      } else {
+        plan.Personal.push(task.text);
+      }
 
       return plan;
     },
@@ -384,24 +384,31 @@ Return structured JSON only.
 
 // ================== TRANSCRIBE ROUTE ==================
 app.post("/transcribe", upload.single("audio"), async (req, res) => {
+  let newPath = null;
+
   try {
+    if (!req.file?.path) {
+      return res.status(400).json({ error: "Audio file is required" });
+    }
+
     const oldPath = req.file.path;
-    const newPath = oldPath + ".m4a";
+    newPath = oldPath + ".m4a";
 
     fs.renameSync(oldPath, newPath);
 
     const transcription = await client.audio.transcriptions.create({
       file: fs.createReadStream(newPath),
-      model: "gpt-4o-mini-transcribe"
+      model: "gpt-4o-mini-transcribe",
     });
 
-    fs.unlinkSync(newPath);
-
     res.json({ text: transcription.text });
-
   } catch (error) {
     console.error("TRANSCRIPTION ERROR:", error);
     res.status(500).json({ error: "Transcription failed" });
+  } finally {
+    if (newPath && fs.existsSync(newPath)) {
+      fs.unlinkSync(newPath);
+    }
   }
 });
 

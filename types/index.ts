@@ -81,15 +81,15 @@ export type ProgressStats = {
 export type OrganizeApiResponse = {
   tasks?: Array<{
     text: string;
-    time?: TaskTime | null;
-    reason?: string | null;
-    priority?: TaskPriority | null;
+    time?: TaskTime;
+    reason?: string;
+    priority?: TaskPriority;
   }>;
   focusTasks?: Array<{
     text: string;
-    time?: TaskTime | null;
-    reason?: string | null;
-    priority?: TaskPriority | null;
+    time?: TaskTime;
+    reason?: string;
+    priority?: TaskPriority;
   }>;
   plan?: Record<string, string[]>;
 };

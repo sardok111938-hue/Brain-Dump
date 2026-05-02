@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Audio } from 'expo-av';
-import * as Haptics from 'expo-haptics';
 
 import { isBackendUnavailableError, transcribeAudioApi } from '@/services/api';
 import { RecordingStatus } from '@/types';
@@ -61,7 +60,6 @@ export const useAudio = ({ onTranscript }: UseAudioOptions) => {
 
       recordingRef.current = recording;
       setRecordingStatus('recording');
-      await Haptics.selectionAsync();
     } catch (caughtError) {
       console.error('Start recording error:', caughtError);
 

@@ -4,18 +4,18 @@ import { useCallback, useState } from 'react';
 export const useSpeech = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  const speak = useCallback(async (text: string) => {
-    if (isSpeaking) {
-      Speech.stop();
-      setIsSpeaking(false);
-      return;
-    }
-
+  const speak = useCallback((text: string) => {
     if (!text.trim()) return;
 
+    if (isSpeaking) {
+      Speech.stop();
+      return; // let onDone handle state reset
+    }
+
     setIsSpeaking(true);
+
     try {
-      await Speech.speak(text, {
+      Speech.speak(text, {
         language: 'en',
         pitch: 1,
         rate: 0.8,

@@ -11,14 +11,9 @@ export const useSupportPopup = () => {
     setVisible(false);
   }, []);
 
-  const markSupportPopupShown = useCallback(() => {
-    setVisible(false);
-  }, []);
-
   return {
     supportPopupVisible: visible,
     closeSupportPopup,
-    markSupportPopupShown,
     showSupportPopup,
   };
 };
