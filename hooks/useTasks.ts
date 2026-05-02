@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { generateHistoryItemId } from '@/hooks/historyIdentity';
 import {
@@ -12,6 +12,7 @@ import {
   loadCurrentTaskCache,
   persistCurrentTaskCache as persistTaskCacheEntry,
 } from '@/hooks/taskStorage';
+import { useTaskStateRefs } from '@/hooks/useTaskStateRefs';
 import { isBackendUnavailableError, organizeTextApi } from '@/services/api';
 import { generateTaskId } from '@/hooks/taskIdentity';
 import {
@@ -44,18 +45,21 @@ export const useTasks = ({
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [isTaskCacheChecked, setIsTaskCacheChecked] = useState(false);
 
-  const mountedRef = useRef(true);
-  const inputRef = useRef('');
-  const resultRef = useRef<TaskResult | null>(null);
-  const isProcessingRef = useRef(false);
-  const requestIdRef = useRef(0);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const activeSessionTimestampRef = useRef<number | null>(null);
-  const activeHistoryEntryIdRef = useRef<string>('');
-  const activeSourceRef = useRef<InputSource>('text');
-  const lastHydratedSelectionRef = useRef<string | null>(null);
-  const latestCacheHydratedRef = useRef(false);
-  const taskCacheHydratedRef = useRef(false);
+  const refs = useTaskStateRefs();
+  const {
+    mountedRef,
+    inputRef,
+    resultRef,
+    isProcessingRef,
+    requestIdRef,
+    abortControllerRef,
+    activeSessionTimestampRef,
+    activeHistoryEntryIdRef,
+    activeSourceRef,
+    lastHydratedSelectionRef,
+    latestCacheHydratedRef,
+    taskCacheHydratedRef,
+  } = refs;
 
   useEffect(() => {
     mountedRef.current = true;
