@@ -8,6 +8,7 @@ import { TaskItem } from './TaskItem';
 
 interface TaskListProps {
   tasks: Task[];
+  pendingCompleteIds?: string[];
   onReorder: (data: Task[]) => void;
   onToggleTask: (taskId: string) => void;
   onSetTaskPriority: (taskId: string, priority?: TaskPriority) => void;
@@ -15,8 +16,16 @@ interface TaskListProps {
 }
 
 export const TaskList = memo(
-  ({ tasks, onReorder, onToggleTask, onSetTaskPriority, ListHeaderComponent }: TaskListProps) => {
-    const [completedExpanded, setCompletedExpanded] = useState(false);
+({
+  tasks,
+  pendingCompleteIds = [],
+  onReorder,
+  onToggleTask,
+  onSetTaskPriority,
+  ListHeaderComponent,
+}: TaskListProps) => {
+  
+  const [completedExpanded, setCompletedExpanded] = useState(false);
 
     const activeTasks = useMemo(() => tasks.filter((task) => !task.completed), [tasks]);
     const completedTasks = useMemo(() => tasks.filter((task) => task.completed), [tasks]);
@@ -40,19 +49,20 @@ export const TaskList = memo(
     );
 
     const renderItem = useCallback(
-      ({ item, drag, isActive }: RenderItemParams<Task>) => {
-        return (
-          <TaskItem
-            task={item}
-            isActive={isActive}
-            onDrag={drag}
-            onToggle={() => onToggleTask(item.id)}
-            onSetPriority={(priority) => onSetTaskPriority(item.id, priority)}
-          />
-        );
-      },
-      [onSetTaskPriority, onToggleTask]
+  ({ item, drag, isActive }: RenderItemParams<Task>) => {
+    return (
+      <TaskItem
+        task={item}
+        isActive={isActive}
+        isCompleting={pendingCompleteIds.includes(item.id)}
+        onDrag={drag}
+        onToggle={() => onToggleTask(item.id)}
+        onSetPriority={(priority) => onSetTaskPriority(item.id, priority)}
+      />
     );
+  },
+  [pendingCompleteIds, onSetTaskPriority, onToggleTask]
+);
 
     const handleDragEnd = useCallback(
       ({ data }: { data: Task[] }) => {

@@ -103,6 +103,8 @@ export default function HomeScreen() {
   },
 });
 
+const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
+
   // 🔹 Focus state
   const [focusModeRequested, setFocusModeRequested] = useState(false);
   const [showFocusCompletionEndState, setShowFocusCompletionEndState] = useState(false);
@@ -235,7 +237,12 @@ export default function HomeScreen() {
         setShowFocusCompletionEndState(false);
       }
 
-      toggleTaskCompleted(taskId);
+      setPendingCompleteIds((ids) => [...ids, taskId]);
+
+setTimeout(() => {
+  toggleTaskCompleted(taskId);
+  setPendingCompleteIds((ids) => ids.filter((id) => id !== taskId));
+}, 1200);
     },
     [isFocusModeActive, result?.focusTasks, result?.tasks, toggleTaskCompleted]
   );
@@ -317,12 +324,13 @@ export default function HomeScreen() {
 
         {hasActiveTasks && result && !shouldShowFocusCard && !showFocusCompletionEndState ? (
           <TaskList
-          tasks={focusModeRequested && result.focusTasks?.length ? result.focusTasks : result.tasks}
-          onReorder={handleReorderTasks}
-          onToggleTask={handleToggleTask}
-          onSetTaskPriority={setTaskPriority}
-          ListHeaderComponent={listHeader}
-          />
+  tasks={focusModeRequested && result.focusTasks?.length ? result.focusTasks : result.tasks}
+  pendingCompleteIds={pendingCompleteIds}
+  onReorder={handleReorderTasks}
+  onToggleTask={handleToggleTask}
+  onSetTaskPriority={setTaskPriority}
+  ListHeaderComponent={listHeader}
+/>
         ) : (
           <ScrollView
             contentContainerStyle={styles.emptyContent}

@@ -7,13 +7,14 @@ import { Task, TaskPriority } from '@/types';
 interface TaskItemProps {
   task: Task;
   isActive: boolean;
+  isCompleting?: boolean;
   onToggle: () => void;
   onDrag: () => void;
   onSetPriority: (priority?: TaskPriority) => void;
 }
 
 export const TaskItem = memo(
-  ({ task, isActive, onToggle, onDrag, onSetPriority }: TaskItemProps) => {
+  ({ task, isActive, isCompleting = false, onToggle, onDrag, onSetPriority }: TaskItemProps) => {
     const handleCyclePriority = () => {
       const nextPriority =
         task.priority === undefined
@@ -24,7 +25,8 @@ export const TaskItem = memo(
 
       onSetPriority(nextPriority);
     };
-
+    
+    const visuallyCompleted = task.completed || isCompleting;
     return (
       <Pressable
         disabled={task.completed}
@@ -32,7 +34,7 @@ export const TaskItem = memo(
           styles.row,
           task.priority === 'high' && !task.completed && styles.rowHighPriority,
           task.priority === 'low' && !task.completed && styles.rowLowPriority,
-          task.completed && styles.rowCompleted,
+          visuallyCompleted && styles.rowCompleted,
           isActive && styles.rowActive,
         ]}
       >
@@ -42,25 +44,25 @@ export const TaskItem = memo(
             accessibilityLabel={
               task.completed ? `Mark ${task.text} incomplete` : `Mark ${task.text} complete`
             }
-            accessibilityState={{ checked: task.completed }}
+            accessibilityState={{ checked: visuallyCompleted }}
             hitSlop={8}
             onPress={(event: GestureResponderEvent) => {
               event.stopPropagation();
               onToggle();
             }}
-            style={[styles.checkWrap, task.completed && styles.checkWrapCompleted]}
+            style={[styles.checkWrap, visuallyCompleted && styles.checkWrapCompleted]}
           >
             <Ionicons
-              name={task.completed ? 'checkmark' : 'ellipse-outline'}
-              size={task.completed ? 17 : 22}
-              color={task.completed ? '#FFFFFF' : '#94A3B8'}
+              name={visuallyCompleted ? 'checkmark' : 'ellipse-outline'}
+              size={visuallyCompleted ? 17 : 22}
+              color={visuallyCompleted ? '#FFFFFF' : '#94A3B8'}
             />
           </Pressable>
 
           <View style={styles.textWrap}>
             <View style={styles.titleRow}>
               <Text
-                style={[styles.taskText, task.completed && styles.taskTextCompleted]}
+                style={[styles.taskText, visuallyCompleted && styles.taskTextCompleted]}
                 numberOfLines={3}
               >
                 {task.text}
@@ -69,6 +71,7 @@ export const TaskItem = memo(
               <Pressable
   accessibilityRole="button"
   accessibilityLabel={`Set priority for ${task.text}`}
+  disabled={visuallyCompleted}
   onPress={(e) => {
     e.stopPropagation();
     handleCyclePriority();
@@ -191,10 +194,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     color: '#94A3B8',
     fontWeight: '600',
-  },
-  priorityIcon: {
-    fontSize: 16,
-    marginLeft: 8,
   },
   dragHandle: {
     width: 40,

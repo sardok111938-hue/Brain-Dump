@@ -28,7 +28,7 @@ const hashString = (value: string) => {
   return (hash >>> 0).toString(36);
 };
 
-const sanitizeId = (value: string) => value.trim();
+const sanitizeId = (value?: string) => value?.trim() ?? '';
 
 export const generateHistoryItemId = (seed = 'history') => {
   const cryptoObject = globalThis.crypto;
