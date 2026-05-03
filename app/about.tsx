@@ -13,7 +13,7 @@ export default function HelpScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.heroCard}>
           <Text style={styles.emoji}>✨</Text>
-          <Text style={styles.title}>How Brain Dump works</Text>
+          <Text style={styles.title}>How Brain Dump works.</Text>
           <Text style={styles.subtitle}>
             Keep it simple. Empty your head, then follow one clear step.
           </Text>
