@@ -10,7 +10,6 @@ export default function TabLayout() {
         tabBarActiveTintColor: '#0F766E',
         tabBarInactiveTintColor: '#94A3B8',
         tabBarHideOnKeyboard: true,
-        tabBarPressColor: 'transparent',
         tabBarStyle: {
           height: 76,
           paddingTop: 10,

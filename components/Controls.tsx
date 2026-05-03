@@ -28,11 +28,7 @@ export const Controls = memo(
     recordingStatus,
     onRecordingToggle,
   }: ControlsProps) => {
-    const label = loading
-      ? 'Working...'
-      : organizeDisabled
-      ? 'Write'
-      : 'Organize';
+    const label = 'Organize';
 
     return (
       <View style={styles.controls}>
@@ -44,7 +40,7 @@ export const Controls = memo(
           onPress={onOrganize}
           style={({ pressed }) => [
             styles.button,
-            styles.primaryButton,
+            organizeDisabled ? styles.primaryButtonDisabled : styles.primaryButton,
             organizeDisabled && styles.buttonDisabled,
             pressed && !organizeDisabled && styles.buttonPressed,
           ]}
@@ -52,9 +48,14 @@ export const Controls = memo(
           <Ionicons
             name="sparkles"
             size={16}
-            color={organizeDisabled ? '#CBD5F5' : '#F8FAFC'}
+            color={organizeDisabled ? '#475569' : '#F8FAFC'}
           />
-          <Text style={styles.primaryButtonText}>{label}</Text>
+          <Text style={[
+            styles.primaryButtonText,
+            organizeDisabled && { color: '#334155' }
+            ]}>
+              {label}
+              </Text>
         </Pressable>
 
         {/* RECORD BUTTON */}
@@ -119,11 +120,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#FDE68A',
   },
 
+  buttonDisabled: {
+    opacity: 0.55,
+  },
+
   primaryButtonText: {
     color: '#FFFFFF',
     fontWeight: '800',
     fontSize: 16,
     minWidth: 60,
+  },
+  primaryButtonDisabled: {
+    backgroundColor: '#F2C2A0', // muted orange
   },
 
   secondaryButtonText: {
@@ -131,10 +139,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 16,
     minWidth: 60,
-  },
-
-  buttonDisabled: {
-    opacity: 0.4, // 👈 clearer disabled state
   },
 
   buttonPressed: {

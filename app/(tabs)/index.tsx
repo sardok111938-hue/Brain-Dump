@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import {
   Alert,
@@ -32,7 +32,7 @@ export default function HomeScreen() {
   supportPopupVisible,
   closeSupportPopup,
   markSupportPopupShown,
-  showSupportPopup,
+  registerSuccessfulSession,
 } = useSupportPopup();
 
   const params = useLocalSearchParams<{
@@ -97,13 +97,17 @@ export default function HomeScreen() {
   const { recordingStatus, error: audioError, toggleRecording } = useAudio({
   onTranscript: async (transcript) => {
     setShowFocusCompletionEndState(false);
-    await handleVoiceTranscript(transcript, focusModeRequested ? 'focus' : 'full');
+    const { ok } = await handleVoiceTranscript(transcript, focusModeRequested ? 'focus' : 'full');
 
-    showSupportPopup();
+    if (ok) {
+      await registerSuccessfulSession();
+    }
   },
 });
 
 const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
+const completionTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+const screenMountedRef = useRef(true);
 
   // 🔹 Focus state
   const [focusModeRequested, setFocusModeRequested] = useState(false);
@@ -115,6 +119,25 @@ const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
   const FOCUS_DURATION_SECONDS = 25 * 60;
   const [focusSecondsLeft, setFocusSecondsLeft] = useState(FOCUS_DURATION_SECONDS);
 
+  const clearPendingCompletionTimeouts = useCallback((resetPendingState = true) => {
+  completionTimeoutsRef.current.forEach((timeoutId) => clearTimeout(timeoutId));
+  completionTimeoutsRef.current.clear();
+
+  if (resetPendingState && screenMountedRef.current) {
+    setPendingCompleteIds([]);
+  }
+}, []);
+
+useEffect(() => {
+  screenMountedRef.current = true;
+
+  return () => {
+    screenMountedRef.current = false;
+    clearPendingCompletionTimeouts(false);
+  };
+}, [clearPendingCompletionTimeouts]);
+
+
   const handleClearTasks = useCallback(() => {
     Alert.alert(
       'Clear tasks?',
@@ -125,6 +148,7 @@ const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
           text: 'Clear',
           style: 'destructive',
           onPress: () => {
+            clearPendingCompletionTimeouts();
             clearTasks();
             setShowFocusCompletionEndState(false);
             setFocusStarted(false);
@@ -135,7 +159,7 @@ const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
         },
       ]
     );
-  }, [FOCUS_DURATION_SECONDS, clearTasks]);
+  }, [FOCUS_DURATION_SECONDS, clearPendingCompletionTimeouts, clearTasks]);
 
   const handleSupport = useCallback((amount: 2 | 5 | 10) => {
   closeSupportPopup();
@@ -194,10 +218,10 @@ const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
 
   // 🔹 Reset completion state
   useEffect(() => {
-    if (showFocusCompletionEndState && hasCurrentTask) {
-      setShowFocusCompletionEndState(false);
-    }
-  }, [hasCurrentTask, showFocusCompletionEndState]);
+  if (!focusModeRequested) {
+    setShowFocusCompletionEndState(false);
+  }
+}, [focusModeRequested]);
 
   const handleInputChange = useCallback(
     (nextInput: string) => {
@@ -210,42 +234,59 @@ const [pendingCompleteIds, setPendingCompleteIds] = useState<string[]>([]);
   const handleStartOrganize = useCallback(async () => {
   setShowFocusCompletionEndState(false);
 
-  await handleOrganize(focusModeRequested ? 'focus' : 'full');
+  const { ok } = await handleOrganize(focusModeRequested ? 'focus' : 'full');
 
-  showSupportPopup();
-}, [focusModeRequested, handleOrganize, showSupportPopup]);
-
+if (ok) {
+  await registerSuccessfulSession();
+}
+}, [focusModeRequested, handleOrganize, registerSuccessfulSession]);
 
 
   const handleToggleTask = useCallback(
-    (taskId: string) => {
-      const targetTask = result?.tasks.find((task) => task.id === taskId);
-      const focusSourceTasks =
-        isFocusModeActive && result?.focusTasks?.length ? result.focusTasks : result?.tasks ?? [];
-      const unfinishedTaskCount = focusSourceTasks.filter((task) => !task.completed).length;
-      const isCompletingLastFocusedTask =
-        !!targetTask &&
-        isFocusModeActive &&
-        !targetTask.completed &&
-        unfinishedTaskCount === 1;
+  (taskId: string) => {
+    if (completionTimeoutsRef.current.has(taskId)) {
+      return;
+    }
 
-      if (isCompletingLastFocusedTask) {
-        setFocusStarted(false);
-        setFocusCardVisible(true);
-        setShowFocusCompletionEndState(true);
-      } else if (targetTask?.completed) {
-        setShowFocusCompletionEndState(false);
+    const targetTask = result?.tasks.find((task) => task.id === taskId);
+    const focusSourceTasks =
+      isFocusModeActive && result?.focusTasks?.length ? result.focusTasks : result?.tasks ?? [];
+
+    const unfinishedTaskCount = focusSourceTasks.filter((task) => !task.completed).length;
+    const shouldShowFocusCompleteAfterCommit =
+      !!targetTask &&
+      isFocusModeActive &&
+      !targetTask.completed &&
+      unfinishedTaskCount === 1;
+
+    if (targetTask?.completed) {
+      setShowFocusCompletionEndState(false);
+    }
+
+    setPendingCompleteIds((ids) => (ids.includes(taskId) ? ids : [...ids, taskId]));
+
+    const timeoutId = setTimeout(() => {
+      completionTimeoutsRef.current.delete(taskId);
+
+      if (!screenMountedRef.current) {
+        return;
       }
 
-      setPendingCompleteIds((ids) => [...ids, taskId]);
+      toggleTaskCompleted(taskId);
 
-setTimeout(() => {
-  toggleTaskCompleted(taskId);
-  setPendingCompleteIds((ids) => ids.filter((id) => id !== taskId));
-}, 1200);
-    },
-    [isFocusModeActive, result?.focusTasks, result?.tasks, toggleTaskCompleted]
-  );
+      setPendingCompleteIds((ids) => ids.filter((id) => id !== taskId));
+
+      if (shouldShowFocusCompleteAfterCommit) {
+  setFocusStarted(false);
+  setFocusCardVisible(false);
+  setShowFocusCompletionEndState(true);
+}
+    }, 1200);
+
+    completionTimeoutsRef.current.set(taskId, timeoutId);
+  },
+  [isFocusModeActive, result?.focusTasks, result?.tasks, toggleTaskCompleted]
+);
 
   const listHeader = useMemo(
     () => (
@@ -270,14 +311,14 @@ setTimeout(() => {
         />
 
         <InputCard
-          value={input}
-          onChangeText={handleInputChange}
-          disabled={loading || recordingStatus === 'transcribing'}
-        />
+  value={input}
+  onChangeText={handleInputChange}
+  disabled={loading}
+/>
 
         <Controls
           onOrganize={handleStartOrganize}
-          organizeDisabled={!input.trim() || loading || recordingStatus !== 'idle'}
+          organizeDisabled={!input.trim() || loading}          
           recordingDisabled={loading || recordingStatus === 'transcribing'}
           loading={loading}
           recordingStatus={recordingStatus}
@@ -310,7 +351,7 @@ setTimeout(() => {
         style={styles.keyboard}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {focusModeRequested && !focusCardVisible && hasCurrentTask ? (
+        {focusModeRequested && !focusCardVisible && hasCurrentTask && !showFocusCompletionEndState ? (
           <Pressable
             onPress={() => {
               setFocusStarted(false);
@@ -334,7 +375,7 @@ setTimeout(() => {
         ) : (
           <ScrollView
             contentContainerStyle={styles.emptyContent}
-            keyboardShouldPersistTaps="handled"
+            keyboardShouldPersistTaps="always"
             keyboardDismissMode="on-drag"
             showsVerticalScrollIndicator={false}
           >

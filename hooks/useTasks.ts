@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { generateHistoryItemId } from '@/hooks/historyIdentity';
 import {
-  COMPLETION_MESSAGES,
   OFFLINE_FALLBACK_MESSAGE,
   SAVE_WARNING_MESSAGE,
 } from '@/hooks/taskMessages';
@@ -12,6 +11,7 @@ import {
   loadCurrentTaskCache,
   persistCurrentTaskCache as persistTaskCacheEntry,
 } from '@/hooks/taskStorage';
+import { useTaskActions } from '@/hooks/useTaskActions';
 import { useTaskStateRefs } from '@/hooks/useTaskStateRefs';
 import { isBackendUnavailableError, organizeTextApi } from '@/services/api';
 import { generateTaskId } from '@/hooks/taskIdentity';
@@ -19,8 +19,6 @@ import {
   HistoryItem,
   InputSource,
   OrganizeMode,
-  Task,
-  TaskPriority,
   TaskResult,
 } from '@/types';
 
@@ -29,6 +27,10 @@ type UseTasksOptions = {
   selectedHistoryEntry: HistoryItem | null;
   latestCachedSession: HistoryItem | null;
   selectionKey?: string | null;
+};
+
+type TaskActionResult = {
+  ok: boolean;
 };
 
 export const useTasks = ({
@@ -45,21 +47,20 @@ export const useTasks = ({
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [isTaskCacheChecked, setIsTaskCacheChecked] = useState(false);
 
-  const refs = useTaskStateRefs();
   const {
-    mountedRef,
-    inputRef,
-    resultRef,
-    isProcessingRef,
-    requestIdRef,
-    abortControllerRef,
-    activeSessionTimestampRef,
-    activeHistoryEntryIdRef,
-    activeSourceRef,
-    lastHydratedSelectionRef,
-    latestCacheHydratedRef,
-    taskCacheHydratedRef,
-  } = refs;
+  mountedRef,
+  inputRef,
+  resultRef,
+  isProcessingRef,
+  requestIdRef,
+  abortControllerRef,
+  activeSessionTimestampRef,
+  activeHistoryEntryIdRef,
+  activeSourceRef,
+  lastHydratedSelectionRef,
+  latestCacheHydratedRef,
+  taskCacheHydratedRef,
+} = useTaskStateRefs();
 
   useEffect(() => {
     mountedRef.current = true;
@@ -185,11 +186,11 @@ export const useTasks = ({
         if (mountedRef.current) {
           setError('Add one thought to get started.');
         }
-        return;
+        return { ok: false };
       }
 
       if (isProcessingRef.current) {
-        return;
+        return { ok: false };
       }
 
       isProcessingRef.current = true;
@@ -211,7 +212,7 @@ export const useTasks = ({
       try {
         const response = await organizeTextApi(trimmedText, mode, controller.signal);
         if (!mountedRef.current || requestIdRef.current !== currentRequestId) {
-          return;
+          return { ok: false };
         }
 
         setProgressMessage('Building plan...');
@@ -232,17 +233,18 @@ export const useTasks = ({
         persistActiveSessionInBackground(nextResult, trimmedText);
 
         if (!mountedRef.current || requestIdRef.current !== currentRequestId) {
-          return;
+          return { ok: false };
         }
 
         setProgressMessage('Saved.');
+        return { ok: true };
       } catch (caughtError) {
         if (requestIdRef.current !== currentRequestId) {
-          return;
+          return { ok: false };
         }
 
         if (caughtError instanceof Error && caughtError.name === 'AbortError') {
-          return;
+          return { ok: false };
         }
 
         if (mountedRef.current) {
@@ -254,6 +256,7 @@ export const useTasks = ({
           setError(message);
           setProgressMessage(null);
         }
+        return { ok: false };
       } finally {
         if (requestIdRef.current === currentRequestId) {
           abortControllerRef.current = null;
@@ -272,24 +275,24 @@ export const useTasks = ({
     ]
   );
 
-  const handleOrganize = useCallback(async (mode: OrganizeMode = 'full') => {
+  const handleOrganize = useCallback(async (mode: OrganizeMode = 'full'): Promise<TaskActionResult> => {
     const currentInput = inputRef.current;
-    await organize(currentInput, 'text', mode);
+    return organize(currentInput, 'text', mode);
   }, [organize]);
 
   const handleVoiceTranscript = useCallback(
-    async (transcript: string, mode: OrganizeMode = 'full') => {
+    async (transcript: string, mode: OrganizeMode = 'full'): Promise<TaskActionResult> => {
       const trimmedTranscript = transcript.trim();
       if (!trimmedTranscript) {
         setError('Couldn’t hear anything. Try again when ready.');
-        return;
+        return { ok: false };
       }
 
       syncInput(trimmedTranscript);
       setError(null);
       setSaveWarning(null);
       setProgressMessage('Organizing...');
-      await organize(trimmedTranscript, 'voice', mode);
+      return organize(trimmedTranscript, 'voice', mode);
     },
     [organize, syncInput]
   );
@@ -306,6 +309,26 @@ export const useTasks = ({
     },
     [loading, syncInput]
   );
+
+  const { handleReorderTasks, toggleTaskCompleted, setTaskPriority, clearTasks } =
+    useTaskActions({
+      resultRef,
+      activeSessionTimestampRef,
+      activeHistoryEntryIdRef,
+      activeSourceRef,
+      taskCacheHydratedRef,
+      latestCacheHydratedRef,
+      syncResult,
+      persistCurrentTaskCacheInBackground,
+      persistActiveSessionInBackground,
+      resetRequestState,
+      syncInput,
+      clearPersistedCurrentTaskState,
+      setError,
+      setLoading,
+      setSaveWarning,
+      setProgressMessage,
+    });
 
   useEffect(() => {
     const selectionIdentity =
@@ -418,123 +441,6 @@ export const useTasks = ({
     syncInput,
     syncResult,
   ]);
-
-  const handleReorderTasks = useCallback(
-    (tasks: Task[]) => {
-      const currentResult = resultRef.current;
-      if (!currentResult) return;
-
-      const reorderedActiveTasks = tasks.filter((task) => !task.completed);
-      const completedTasks = currentResult.tasks.filter((task) => task.completed);
-
-      const nextResult = {
-        ...currentResult,
-        tasks: [...reorderedActiveTasks, ...completedTasks],
-      };
-
-      syncResult(nextResult);
-      setError(null);
-      setSaveWarning(null);
-      setProgressMessage('Saved.');
-      persistCurrentTaskCacheInBackground(nextResult);
-      persistActiveSessionInBackground(nextResult);
-    },
-    [persistActiveSessionInBackground, persistCurrentTaskCacheInBackground, syncResult]
-  );
-
-  const toggleTaskCompleted = useCallback(
-    (taskId: string) => {
-      const currentResult = resultRef.current;
-      if (!currentResult) return;
-
-      const tasks = currentResult.tasks.map((task) =>
-        task.id === taskId ? { ...task, completed: !task.completed } : task
-      );
-
-      const focusTasks = currentResult.focusTasks?.map((task) =>
-        task.id === taskId ? { ...task, completed: !task.completed } : task
-      );
-
-      const completedTask = tasks.find((task) => task.id === taskId);
-
-      const nextResult = {
-        ...currentResult,
-        tasks,
-        ...(focusTasks ? { focusTasks } : {}),
-      };
-
-      syncResult(nextResult);
-      setError(null);
-      setSaveWarning(null);
-      setProgressMessage(
-        completedTask?.completed
-          ? COMPLETION_MESSAGES[Math.floor(Math.random() * COMPLETION_MESSAGES.length)]
-          : 'Moved back to active.'
-      );
-      persistCurrentTaskCacheInBackground(nextResult);
-      persistActiveSessionInBackground(nextResult);
-    },
-    [persistActiveSessionInBackground, persistCurrentTaskCacheInBackground, syncResult]
-  );
-
-  const setTaskPriority = useCallback(
-    (taskId: string, priority?: TaskPriority) => {
-      const currentResult = resultRef.current;
-      if (!currentResult) return;
-
-      const tasks = currentResult.tasks.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              priority: task.priority === priority ? undefined : priority,
-            }
-          : task
-      );
-
-      const focusTasks = currentResult.focusTasks?.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              priority: task.priority === priority ? undefined : priority,
-            }
-          : task
-      );
-
-      const nextResult = {
-        ...currentResult,
-        tasks,
-        ...(focusTasks ? { focusTasks } : {}),
-      };
-
-      syncResult(nextResult);
-      setError(null);
-      setSaveWarning(null);
-      setProgressMessage('Saved.');
-      persistCurrentTaskCacheInBackground(nextResult);
-      persistActiveSessionInBackground(nextResult);
-    },
-    [persistActiveSessionInBackground, persistCurrentTaskCacheInBackground, syncResult]
-  );
-
-  const clearTasks = useCallback(() => {
-    resetRequestState();
-
-    syncInput('');
-    syncResult(null);
-
-    activeSessionTimestampRef.current = null;
-    activeHistoryEntryIdRef.current = '';
-    activeSourceRef.current = 'text';
-    taskCacheHydratedRef.current = false;
-    latestCacheHydratedRef.current = true;
-
-    setError(null);
-    setSaveWarning(null);
-    setProgressMessage(null);
-    setLoading(false);
-
-    void clearPersistedCurrentTaskState();
-  }, [clearPersistedCurrentTaskState, resetRequestState, syncInput, syncResult]);
 
   return {
     input,

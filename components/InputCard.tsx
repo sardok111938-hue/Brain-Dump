@@ -1,5 +1,5 @@
-import { memo, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { memo, useCallback, useRef, useState } from 'react';
+import { Pressable, StyleSheet, Text, TextInput } from 'react-native';
 
 interface InputCardProps {
   value: string;
@@ -10,10 +10,22 @@ interface InputCardProps {
 export const InputCard = memo(
   ({ value, onChangeText, disabled = false }: InputCardProps) => {
     const [focused, setFocused] = useState(false);
+    const inputRef = useRef<TextInput>(null);
+    const focusInput = useCallback(() => {
+      if (!disabled) {
+        inputRef.current?.focus();
+      }
+    }, [disabled]);
 
     return (
-      <View style={[styles.card, focused && styles.cardFocused]}>
+      <Pressable
+        accessible={false}
+        onPressIn={focusInput}
+        disabled={disabled}
+        style={[styles.card, focused && styles.cardFocused]}
+      >
         <TextInput
+          ref={inputRef}
           accessibilityLabel="Thoughts"
           style={styles.input}
           placeholder={'What’s on your mind?\n\n(e.g. call boss, gym, groceries)'}
@@ -35,7 +47,7 @@ export const InputCard = memo(
             Just write or speak. We’ll organize it.
           </Text>
         ) : null}
-      </View>
+      </Pressable>
     );
   }
 );

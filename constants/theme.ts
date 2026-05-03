@@ -107,7 +107,7 @@ export const Fonts = Platform.select({
     sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Courier New', monospace",
   },
-}) as const;
+});
 
 /**
  * Layout tokens

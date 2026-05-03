@@ -45,6 +45,7 @@ export const TaskItem = memo(
               task.completed ? `Mark ${task.text} incomplete` : `Mark ${task.text} complete`
             }
             accessibilityState={{ checked: visuallyCompleted }}
+            disabled={isCompleting}
             hitSlop={8}
             onPress={(event: GestureResponderEvent) => {
               event.stopPropagation();

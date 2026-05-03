@@ -106,7 +106,7 @@ export const TaskList = memo(
         ItemSeparatorComponent={Separator}
         ListHeaderComponent={ListHeaderComponent}
         ListFooterComponent={footer}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps="always"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
       />

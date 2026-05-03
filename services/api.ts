@@ -4,6 +4,8 @@ import { OrganizeApiResponse, OrganizeMode, TranscribeApiResponse } from '@/type
 
 const REQUEST_TIMEOUT_MS = 25000;
 const AUDIO_MIME_TYPE = 'audio/mp4';
+const isProductionBuild =
+  (typeof __DEV__ === 'boolean' && !__DEV__) || process.env.NODE_ENV === 'production';
 
 const trimTrailingSlash = (value: string) => value.replace(/\/+$/, '');
 
@@ -11,6 +13,12 @@ const resolveApiBaseUrl = () => {
   const configuredBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
   if (configuredBaseUrl) {
     return trimTrailingSlash(configuredBaseUrl);
+  }
+
+  if (isProductionBuild) {
+    throw new Error(
+      'EXPO_PUBLIC_API_BASE_URL is required in production builds. Localhost fallback is disabled.'
+    );
   }
 
   const hostUri = Constants.expoConfig?.hostUri ?? Constants.platform?.hostUri;

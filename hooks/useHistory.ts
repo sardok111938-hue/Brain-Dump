@@ -393,8 +393,8 @@ export const useHistory = (
     } catch (error) {
       console.error('Failed to load history:', error);
       publishHistoryStore({
-        history: [],
-        latestSession: null,
+        history: historyRef.current,
+        latestSession: historyStoreSnapshot.latestSession,
         isLoaded: true,
       });
     }

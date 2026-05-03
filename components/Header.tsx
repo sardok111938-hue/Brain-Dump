@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { GestureResponderEvent, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
@@ -14,132 +14,157 @@ interface HeaderProps {
 export const Header = memo(
   ({ streak, todayUsage, focusModeEnabled, onToggleFocus, onClearTasks }: HeaderProps) => {
     const router = useRouter();
-    
-const [menuOpen, setMenuOpen] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
 
-const menu = menuOpen ? (
-  <View style={styles.menu}>
-    <Pressable
-      onPress={() => {
-        setMenuOpen(false);
-        onToggleFocus();
-      }}
-    >
-      <Text style={styles.menuItem}>
-        {focusModeEnabled ? 'Exit Focus Mode' : 'Focus Mode'}
-      </Text>
-    </Pressable>
+    const stopPropagation = (event: GestureResponderEvent) => {
+      event.stopPropagation();
+    };
 
-    <View style={styles.menuDivider} />
+    const renderMenuItems = () => (
+      <>
+        <Pressable
+          onPress={() => {
+            setMenuOpen(false);
+            onToggleFocus();
+          }}
+        >
+          <Text style={styles.menuItem}>
+            {focusModeEnabled ? 'Exit Focus Mode' : 'Focus Mode'}
+          </Text>
+        </Pressable>
 
-    <Pressable
-      onPress={() => {
-        setMenuOpen(false);
-        router.push('/help');
-      }}
-    >
-      <Text style={styles.menuItem}>Help</Text>
-    </Pressable>
+        <View style={styles.menuDivider} />
 
-    <Pressable
-      onPress={() => {
-        setMenuOpen(false);
-        router.push('/about');
-      }}
-    >
-      <Text style={styles.menuItem}>About</Text>
-    </Pressable>
+        <Pressable
+          onPress={() => {
+            setMenuOpen(false);
+            router.push('/help');
+          }}
+        >
+          <Text style={styles.menuItem}>Help</Text>
+        </Pressable>
 
-    <Pressable
-      onPress={() => {
-        setMenuOpen(false);
-        router.push('/contact');
-      }}
-    >
-      <Text style={styles.menuItem}>Contact</Text>
-    </Pressable>
+        <Pressable
+          onPress={() => {
+            setMenuOpen(false);
+            router.push('/about');
+          }}
+        >
+          <Text style={styles.menuItem}>About</Text>
+        </Pressable>
 
-    <View style={styles.menuDivider} />
+        <Pressable
+          onPress={() => {
+            setMenuOpen(false);
+            router.push('/contact');
+          }}
+        >
+          <Text style={styles.menuItem}>Contact</Text>
+        </Pressable>
 
-    <Pressable
-      onPress={() => {
-        setMenuOpen(false);
-        onClearTasks();
-      }}
-    >
-      <Text style={styles.dangerMenuItem}>Clear current tasks</Text>
-    </Pressable>
-  </View>
-) : null;
+        <View style={styles.menuDivider} />
+
+        <Pressable
+          onPress={() => {
+            setMenuOpen(false);
+            onClearTasks();
+          }}
+        >
+          <Text style={styles.dangerMenuItem}>Clear current tasks</Text>
+        </Pressable>
+      </>
+    );
+
+    const menuOverlay = menuOpen ? (
+      <Modal
+        visible
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setMenuOpen(false)}
+      >
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          <Pressable
+            style={[styles.menu, focusModeEnabled ? styles.menuFocusPosition : styles.menuDefaultPosition]}
+            onPress={stopPropagation}
+          >
+            {renderMenuItems()}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    ) : null;
 
 if (focusModeEnabled) {
   return (
-    <View style={styles.container}>
-      <View style={styles.simpleBrandRow}>
-        <Text style={styles.simpleBrandTitle}>Brain Dump</Text>
+    <>
+      <View style={styles.container}>
+        <View style={styles.simpleBrandRow}>
+          <Text style={styles.simpleBrandTitle}>Brain Dump</Text>
 
-        <Pressable
-          onPress={() => setMenuOpen((value) => !value)}
-          hitSlop={10}
-          style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
-        >
-          <Ionicons name="menu" size={22} color="#0F172A" />
-        </Pressable>
+          <Pressable
+            onPress={() => setMenuOpen((value) => !value)}
+            hitSlop={10}
+            style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
+          >
+            <Ionicons name="menu" size={22} color="#0F172A" />
+          </Pressable>
+        </View>
+
+        <View style={styles.simpleCard}>
+          <Text style={styles.simpleTitle}>One thing</Text>
+          <Text style={styles.simpleMeta}>
+            {todayUsage ? `${streak} day streak` : 'Start here'}
+          </Text>
+        </View>
       </View>
-
-      <View style={styles.simpleCard}>
-        <Text style={styles.simpleTitle}>One thing</Text>
-        <Text style={styles.simpleMeta}>
-          {todayUsage ? `${streak} day streak` : 'Start here'}
-        </Text>
-      </View>
-
-      {menu}
-    </View>
+      {menuOverlay}
+    </>
   );
 }
     return (
-      <View style={styles.container}>
-        <View style={styles.brandRow}>
-          <View style={styles.brandLeft}>
-            <View style={styles.logoBubble}>
-              <Text style={styles.brainIcon}>🧠</Text>
+      <>
+        <View style={styles.container}>
+          <View style={styles.brandRow}>
+            <View style={styles.brandLeft}>
+              <View style={styles.logoBubble}>
+                <Text style={styles.brainIcon}>🧠</Text>
+              </View>
+
+              <View>
+                <Text style={styles.brandTitle}>Brain Dump</Text>
+                <Text style={styles.brandSubtitle}>Organize your day</Text>
+              </View>
             </View>
 
-            <View>
-              <Text style={styles.brandTitle}>Brain Dump</Text>
-              <Text style={styles.brandSubtitle}>Organize your day</Text>
-            </View>
-          </View>
-
-          <View style={styles.rightSide}>
-            <Pressable
-  onPress={() => setMenuOpen((value) => !value)}
-  hitSlop={10}
-  style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
->
-  <Ionicons name="menu" size={22} color="#0F172A" />
-</Pressable>
-
-            <View style={[styles.badge, todayUsage ? styles.badgeActive : styles.badgeMuted]}>
-              <Text
-                style={[
-                  styles.badgeText,
-                  todayUsage ? styles.badgeTextActive : styles.badgeTextMuted,
-                ]}
+            <View style={styles.rightSide}>
+              <Pressable
+                onPress={() => setMenuOpen((value) => !value)}
+                hitSlop={10}
+                style={({ pressed }) => [styles.menuButton, pressed && styles.buttonPressed]}
               >
-                {todayUsage ? `${streak} day${streak === 1 ? '' : 's'} 🔥` : 'New day'}
-              </Text>
+                <Ionicons name="menu" size={22} color="#0F172A" />
+              </Pressable>
+
+              <View style={[styles.badge, todayUsage ? styles.badgeActive : styles.badgeMuted]}>
+                <Text
+                  style={[
+                    styles.badgeText,
+                    todayUsage ? styles.badgeTextActive : styles.badgeTextMuted,
+                  ]}
+                >
+                  {todayUsage ? `${streak} day${streak === 1 ? '' : 's'} 🔥` : 'New day'}
+                </Text>
+              </View>
             </View>
           </View>
-        </View>
 
-        <View style={styles.heroCard}>
-          <Text style={styles.title}>Dump → Organize → Done</Text>
-          <Text style={styles.subtitle}>Write anything. We’ll handle the rest.</Text>
+          <View style={styles.heroCard}>
+            <Text style={styles.title}>Dump → Organize → Done</Text>
+            <Text style={styles.subtitle}>Write anything. We’ll handle the rest.</Text>
+          </View>
         </View>
-        {menu}
-      </View>
+        {menuOverlay}
+      </>
     );
   }
 );
@@ -150,7 +175,11 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: 28,
     position: 'relative',
-    zIndex: 999,
+  },
+
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.18)',
   },
 
   simpleBrandRow: {
@@ -229,34 +258,44 @@ simpleBrandTitle: {
     fontSize: 46,
     transform: [{ translateY: -6 }],
   },
-menu: {
-  position: 'absolute',
-  top: 48,
-  right: 0,
-  minWidth: 170,
-  backgroundColor: '#FFFFFF',
-  borderRadius: 16,
-  paddingVertical: 8,
-  borderWidth: 1,
-  borderColor: '#E2E8F0',
-  shadowColor: '#000',
-  shadowOpacity: 0.12,
-  shadowRadius: 12,
-  elevation: 999,
-  zIndex: 9999,
-},
-menuItem: {
-  paddingVertical: 10,
-  paddingHorizontal: 14,
-  fontSize: 14,
-  fontWeight: '700',
-  color: '#0F172A',
-},
-menuDivider: {
-  height: 1,
-  backgroundColor: '#E2E8F0',
-  marginVertical: 6,
-},
+  menu: {
+    position: 'absolute',
+    minWidth: 170,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 999,
+    zIndex: 9999,
+  },
+
+  menuDefaultPosition: {
+    top: 72,
+    right: 24,
+  },
+
+  menuFocusPosition: {
+    top: 56,
+    right: 24,
+  },
+
+  menuItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+
+  menuDivider: {
+    height: 1,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 6,
+  },
 
 dangerMenuItem: {
   paddingVertical: 10,

@@ -90,7 +90,6 @@ export const useAudio = ({ onTranscript }: UseAudioOptions) => {
     try {
       setError(null);
       setRecordingStatus('transcribing');
-      await Haptics.selectionAsync();
       await recording.stopAndUnloadAsync();
 
       const uri = recording.getURI();
