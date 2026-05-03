@@ -29,11 +29,11 @@ import { useTasks } from '@/hooks/useTasks';
 
 export default function HomeScreen() {
   const {
-  supportPopupVisible,
-  closeSupportPopup,
-  markSupportPopupShown,
-  registerSuccessfulSession,
-} = useSupportPopup();
+    supportPopupVisible,
+    closeSupportPopup,
+    markSupportPopupShown,
+    registerSuccessfulSession,
+  } = useSupportPopup();
 
   const params = useLocalSearchParams<{
     selectedTimestamp?: string;
@@ -311,10 +311,9 @@ if (ok) {
         />
 
         <InputCard
-  value={input}
-  onChangeText={handleInputChange}
-  disabled={loading}
-/>
+        value={input}
+        onChangeText={handleInputChange}
+        disabled={loading}/>
 
         <Controls
           onOrganize={handleStartOrganize}

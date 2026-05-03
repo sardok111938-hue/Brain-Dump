@@ -2,7 +2,21 @@ import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 
+import { useOnboarding } from '@/hooks/useOnboarding';
+import { Onboarding } from '@/components/Onboarding';
+
 export default function TabLayout() {
+  const { hasSeen, completeOnboarding } = useOnboarding();
+
+  // ⏳ wait for storage
+  if (hasSeen === null) return null;
+
+  // 🚀 show onboarding instead of tabs
+  if (!hasSeen) {
+    return <Onboarding onContinue={completeOnboarding} />;
+  }
+
+  // ✅ normal app with tabs
   return (
     <Tabs
       screenOptions={{
@@ -16,7 +30,7 @@ export default function TabLayout() {
           paddingBottom: 12,
           backgroundColor: '#FFFFFF',
           borderTopColor: '#E2E8F0',
-          elevation: 8, // Android shadow
+          elevation: 8,
           shadowColor: '#000',
           shadowOpacity: 0.05,
           shadowRadius: 8,
