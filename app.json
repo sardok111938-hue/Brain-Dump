@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.yaso.braindumpapp",
       "buildNumber": "1",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Brain Dump uses your microphone to record voice thoughts and organize them into tasks."
+        "NSMicrophoneUsageDescription": "Brain Dump uses your microphone to record voice thoughts and organize them into tasks.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -49,6 +50,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "390d88e8-052b-4a85-9329-41ee54560096"
+      }
     }
   }
 }
