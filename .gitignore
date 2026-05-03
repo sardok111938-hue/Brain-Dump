@@ -1,5 +1,3 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
 # dependencies
 node_modules/
 
@@ -30,7 +28,7 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# env files
 .env
 .env.*
 backend/.env
@@ -38,8 +36,9 @@ backend/.env
 # typescript
 *.tsbuildinfo
 
+# misc
 app-example
 
-# generated native folders
+# native folders
 /ios
 /android
